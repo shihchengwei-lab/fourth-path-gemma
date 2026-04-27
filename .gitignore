@@ -1,0 +1,6 @@
+runs/*.jsonl
+__pycache__/
+tests/__pycache__/
+*.pyc
+.pytest_cache/
+downloads/
