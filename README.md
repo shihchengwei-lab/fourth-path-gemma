@@ -121,3 +121,5 @@ python -m unittest discover -s tests -v
 ## License
 
 MIT
+
+> Pipeline test passed.
