@@ -19,6 +19,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  id-token: write  # 必填：Claude Code Action 即使用 OAuth token 也會嘗試取 OIDC token；缺這個 permission action 會在最開頭 die 在 OIDC 取不到
 
 jobs:
   # ──────────────────────────────────────────────────────────
