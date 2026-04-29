@@ -147,6 +147,9 @@ jobs:
           github_token: ${{ secrets.GH_USER_TOKEN }}
           bot_id: 267302701
           bot_name: shihchengwei-lab
+          # 必填：pull_request_review event 的 actor 是 reviewer（Codex bot），
+          # action 預設拒絕 bot actor、必須白名單。我們只允許 Codex Cloud 的 bot 帳號。
+          allowed_bots: chatgpt-codex-connector[bot]
           prompt: |
             A reviewer has submitted a review on this pull request.
             Read the latest review on PR #${{ github.event.pull_request.number }},
