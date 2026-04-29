@@ -1,0 +1,1 @@
+{"timestamp":"2026-04-29T18:46:59Z","task_id":"smoke-test-2-pipeline-line","output_artifact":{"diff_hash":"d2758898e6e26afc827962a9a7b9eceb151d69eb","files":[]},"issue_signatures":[],"retry_count":3,"user_decision":null,"user_decision_notes":null,"resolved_at":null,"pr":14}
