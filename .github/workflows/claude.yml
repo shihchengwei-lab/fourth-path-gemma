@@ -37,8 +37,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # debug: 看 Claude 實際呼叫了哪些 tool、哪些被拒（Phase 03a 第一次跑 8 turns 內 4 次 permission denial 的根因排查）
           show_full_output: true
-          # X1（Phase 03a debug）：Codex Cloud 不會 auto-review bot-authored PR；
-          # 改用 SHIHCHENG identity 開 PR 讓 Codex 觸發。預設是 claude[bot] / 41898282。
+          # X1-revised（Phase 03a debug）：用 SHIHCHENG 的 PAT 蓋掉 action 預設的 installation token
+          # → PR opener 變 user → Codex 才會 auto-review。沒這個的話 Codex 完全跳過 bot-opened PR。
+          github_token: ${{ secrets.GH_USER_TOKEN }}
+          # X1：commit author/committer 也對齊 user identity，跟 PR opener 一致
           bot_id: 267302701
           bot_name: shihchengwei-lab
           prompt: |
@@ -140,7 +142,8 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # debug: 跟 process-issue job 同樣理由——暴露 tool calls/denials 方便排查
           show_full_output: true
-          # X1（Phase 03a debug）：fix commit 也用 SHIHCHENG identity，跟 process-issue 一致
+          # X1-revised：跟 process-issue job 同樣理由——commits/PR 動作都用 SHIHCHENG identity
+          github_token: ${{ secrets.GH_USER_TOKEN }}
           bot_id: 267302701
           bot_name: shihchengwei-lab
           prompt: |
