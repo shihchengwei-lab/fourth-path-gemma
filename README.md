@@ -122,4 +122,4 @@ python -m unittest discover -s tests -v
 
 MIT
 
-> Pipelne integration validated.
+> Pipeline integration validated.
