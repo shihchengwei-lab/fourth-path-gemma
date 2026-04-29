@@ -4,10 +4,11 @@ name: Claude Code Pipeline
 #   Trigger A — issue 被加上 agent:run label 時，由 Claude 處理 issue 並開 PR
 #   Trigger B — PR review 提交時，若 reviewer 是 Codex bot 則由 Claude 修正
 #
-# IMPORTANT: __CODEX_BOT_LOGIN_PLACEHOLDER__ 在本檔出現於 *兩處*：
-#   1. respond-to-review job 的 job-level if:
+# NOTE: Codex bot login `chatgpt-codex-connector[bot]` 在本檔寫死於兩處：
+#   1. respond-to-review job 的 job-level if
 #   2. Detect repeated reviews step 內的 codexBotLogin 常數
-# Phase 03 抄到 Codex bot 真實 login 後，**兩處都要一起換掉**，缺一邊會讓 pipeline 半失靈。
+# 如果 Codex 改 bot 名字，**兩處要同時更新**，缺一邊會讓 pipeline 半失靈。
+# pipeline-troubleshooting.md §1 描述了從失靈症狀回頭修這兩處的流程。
 
 on:
   issues:
@@ -58,7 +59,7 @@ jobs:
   # Trigger B：PR review 觸發 Claude 修正（限 Codex bot 身份）
   # ──────────────────────────────────────────────────────────
   respond-to-review:
-    if: github.event_name == 'pull_request_review' && github.event.review.user.login == '__CODEX_BOT_LOGIN_PLACEHOLDER__'
+    if: github.event_name == 'pull_request_review' && github.event.review.user.login == 'chatgpt-codex-connector[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +76,7 @@ jobs:
         with:
           script: |
             const crypto = require('crypto');
-            const codexBotLogin = '__CODEX_BOT_LOGIN_PLACEHOLDER__';
+            const codexBotLogin = 'chatgpt-codex-connector[bot]';
             const { data: reviews } = await github.rest.pulls.listReviews({
               owner: context.repo.owner,
               repo: context.repo.repo,
