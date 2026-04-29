@@ -44,7 +44,9 @@ jobs:
             Implement the requested change and open a pull request whose
             description uses that structure (at minimum: severity, evidence,
             suggested_validation).
-          claude_args: --max-turns 8
+          claude_args: |
+            --max-turns 10
+            --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
 
   # ──────────────────────────────────────────────────────────
   # Trigger B：PR review 觸發 Claude 修正（限 Codex bot 身份）
@@ -140,4 +142,6 @@ jobs:
             then apply the requested fixes following CLAUDE.md and the
             seven-column evidence-bound structure in docs/code-review.md.
             Commit the fixes to this PR branch.
-          claude_args: --max-turns 8
+          claude_args: |
+            --max-turns 10
+            --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
