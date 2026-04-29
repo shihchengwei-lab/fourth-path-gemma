@@ -153,11 +153,10 @@ jobs:
           # 從 PR #15 的失敗 log 確認：actor 是 chatgpt-codex-connector（無後綴）。
           allowed_bots: chatgpt-codex-connector
           prompt: |
-            A reviewer has submitted a review on this pull request.
-            Read the latest review on PR #${{ github.event.pull_request.number }},
-            then apply the requested fixes following CLAUDE.md and the
-            seven-column evidence-bound structure in docs/code-review.md.
-            Commit the fixes to this PR branch.
+            A reviewer has submitted a review on PR #${{ github.event.pull_request.number }}.
+            Read the latest review and apply the requested fix to this PR's branch.
+            Stay narrowly within the scope of the review—do not refactor or expand
+            beyond fixing the issue raised. Commit and push the fix.
           claude_args: |
             --max-turns 10
             --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
