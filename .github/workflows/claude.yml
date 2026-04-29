@@ -1,0 +1,138 @@
+name: Claude Code Pipeline
+
+# 兩組 trigger 分清楚（agent-pipeline-v3/01-install.md §B）：
+#   Trigger A — issue 被加上 agent:run label 時，由 Claude 處理 issue 並開 PR
+#   Trigger B — PR review 提交時，若 reviewer 是 Codex bot 則由 Claude 修正
+#
+# IMPORTANT: __CODEX_BOT_LOGIN_PLACEHOLDER__ 在本檔出現於 *兩處*：
+#   1. respond-to-review job 的 job-level if:
+#   2. Detect repeated reviews step 內的 codexBotLogin 常數
+# Phase 03 抄到 Codex bot 真實 login 後，**兩處都要一起換掉**，缺一邊會讓 pipeline 半失靈。
+
+on:
+  issues:
+    types: [labeled]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Trigger A：label 觸發 Claude 處理 issue
+  # ──────────────────────────────────────────────────────────
+  process-issue:
+    if: github.event_name == 'issues' && github.event.label.name == 'agent:run'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Process GitHub issue #${{ github.event.issue.number }}.
+            Read the issue title and body. Follow the governance in CLAUDE.md
+            and the seven-column evidence-bound structure in docs/code-review.md.
+            Implement the requested change and open a pull request whose
+            description uses that structure (at minimum: severity, evidence,
+            suggested_validation).
+          claude_args: --max-turns 8
+
+  # ──────────────────────────────────────────────────────────
+  # Trigger B：PR review 觸發 Claude 修正（限 Codex bot 身份）
+  # ──────────────────────────────────────────────────────────
+  respond-to-review:
+    if: github.event_name == 'pull_request_review' && github.event.review.user.login == '__CODEX_BOT_LOGIN_PLACEHOLDER__'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      # 重複偵測（agent-pipeline-v3/01-install.md §B「重複偵測」）：
+      #   同一 PR 上、來自 Codex bot 的 review，body 的 sha256 hash 累積 ≥ 3 次
+      #   → 跳過 Claude 修正，改寫 refusal log + 加 agent:stuck label + 留 comment
+      - name: Detect repeated reviews
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const crypto = require('crypto');
+            const codexBotLogin = '__CODEX_BOT_LOGIN_PLACEHOLDER__';
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const hashes = {};
+            for (const r of reviews) {
+              if (r.user && r.user.login === codexBotLogin) {
+                const h = crypto.createHash('sha256').update(r.body || '').digest('hex');
+                hashes[h] = (hashes[h] || 0) + 1;
+              }
+            }
+            const max = Object.values(hashes).reduce((a, b) => Math.max(a, b), 0);
+            core.info(`Codex review hash counts: ${JSON.stringify(hashes)}`);
+            core.setOutput('duplicate', max >= 3 ? 'true' : 'false');
+            core.setOutput('max_count', String(max));
+
+      # 觸發動作 1/3：append docs/refusal-log.jsonl 並 commit/push 進 PR branch
+      # 排在 label/comment 前面：commit 失敗時不會留下「label 加了但 log 沒寫」的半完成狀態
+      - name: Append refusal log
+        if: steps.detect.outputs.duplicate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs
+          ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          branch="${{ github.event.pull_request.head.ref }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          pr_number="${{ github.event.pull_request.number }}"
+          # JSONL 一行一條，schema 見 docs/refusal-log.md
+          printf '{"timestamp":"%s","task_id":"%s","output_artifact":{"diff_hash":"%s","files":[]},"issue_signatures":[],"retry_count":3,"user_decision":null,"user_decision_notes":null,"resolved_at":null,"pr":%s}\n' \
+            "$ts" "$branch" "$head_sha" "$pr_number" >> docs/refusal-log.jsonl
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/refusal-log.jsonl
+          git commit -m "log refusal: repeated review hash on PR #${pr_number}"
+          git push origin HEAD:${branch}
+
+      # 觸發動作 2/3 + 3/3：加 agent:stuck label + 留 comment
+      - name: Apply agent:stuck label and post comment
+        if: steps.detect.outputs.duplicate == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['agent:stuck'],
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: 'Cold-eyes refusal logged — 等待 SHIHCHENG 裁決',
+            });
+
+      # 沒重複 → 真的呼叫 Claude 修正
+      - name: Run Claude Code Action
+        if: steps.detect.outputs.duplicate != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            A reviewer has submitted a review on this pull request.
+            Read the latest review on PR #${{ github.event.pull_request.number }},
+            then apply the requested fixes following CLAUDE.md and the
+            seven-column evidence-bound structure in docs/code-review.md.
+            Commit the fixes to this PR branch.
+          claude_args: --max-turns 8
