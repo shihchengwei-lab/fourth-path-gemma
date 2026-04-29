@@ -35,6 +35,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # debug: 看 Claude 實際呼叫了哪些 tool、哪些被拒（Phase 03a 第一次跑 8 turns 內 4 次 permission denial 的根因排查）
+          show_full_output: true
           prompt: |
             Process GitHub issue #${{ github.event.issue.number }}.
             Read the issue title and body. Follow the governance in CLAUDE.md
@@ -130,6 +132,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # debug: 跟 process-issue job 同樣理由——暴露 tool calls/denials 方便排查
+          show_full_output: true
           prompt: |
             A reviewer has submitted a review on this pull request.
             Read the latest review on PR #${{ github.event.pull_request.number }},
