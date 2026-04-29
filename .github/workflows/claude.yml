@@ -149,7 +149,9 @@ jobs:
           bot_name: shihchengwei-lab
           # 必填：pull_request_review event 的 actor 是 reviewer（Codex bot），
           # action 預設拒絕 bot actor、必須白名單。我們只允許 Codex Cloud 的 bot 帳號。
-          allowed_bots: chatgpt-codex-connector[bot]
+          # 注意：actor 名格式無 [bot] 後綴（不同於 review.user.login，那個有後綴）。
+          # 從 PR #15 的失敗 log 確認：actor 是 chatgpt-codex-connector（無後綴）。
+          allowed_bots: chatgpt-codex-connector
           prompt: |
             A reviewer has submitted a review on this pull request.
             Read the latest review on PR #${{ github.event.pull_request.number }},
