@@ -27,6 +27,7 @@ These labels coordinate state transitions between the workflow, Claude, Codex, a
 | `agent:run` triggers implementation mode | Implemented in `.github/workflows/claude.yml` |
 | First child issue receives `agent:run` during planning | Implemented by the planning prompt, not by a separate deterministic workflow step |
 | Claude requests another Codex review after pushing a review fix | Implemented in the PR-review path by commenting `@codex review` after a pushed fix commit |
+| Codex environment setup blocker is surfaced | Implemented in the issue-comment path by adding `agent:needs-user-decision` when Codex says the repo has no environment |
 | `agent:stuck` is added after repeated review detection | Implemented in the PR-review path |
 | `agent:run` is removed automatically | Implemented by the process prompt after the PR is open |
 | `agent:needs-user-decision` is added automatically | Implemented in the repeated-review recovery path when a real human decision is required |
@@ -39,6 +40,7 @@ These labels coordinate state transitions between the workflow, Claude, Codex, a
 - `agent:plan` → child issue with `agent:run`: current planning flow creates child issues and labels only the first executable child with `agent:run`.
 - `agent:run` → ready PR: Claude implements the issue, opens a ready-for-review PR linked with a closing keyword, then removes `agent:run` from the source issue.
 - Codex review → Claude fix → Codex review: Trigger B applies the requested fix, pushes it, then comments `@codex review` to request the next review round.
+- Codex environment missing → `agent:needs-user-decision`: Trigger C labels the PR and leaves one setup comment if Codex says the repo needs an environment before review can run.
 - Repeated identical Codex review → `agent:stuck`: automated in the PR-review repeated-review path to prevent an infinite loop.
 - Ambiguous task → `agent:needs-user-decision`: recovery flow uses this only when it cannot infer a safe next step and must ask one narrow question.
 - `agent:parent` + `agent:child`: set during decomposition; neither implies execution state on its own.

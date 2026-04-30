@@ -5,6 +5,7 @@ name: Claude Code Pipeline
 #   Trigger P — issue 被加上 agent:plan label 時，由 Claude 只做拆解規劃並建立 child issues
 #   Trigger A — issue 被加上 agent:run label 時，由 Claude 處理 issue 並開 PR
 #   Trigger B — PR review 提交時，若 reviewer 是 Codex bot 則由 Claude 修正
+#   Trigger C — Codex 留下環境設定 blocker comment 時，標成需要使用者做一次外部設定
 #
 # NOTE: Codex bot login `chatgpt-codex-connector[bot]` 在本檔寫死於兩處：
 #   1. respond-to-review job 的 job-level if
@@ -15,6 +16,8 @@ name: Claude Code Pipeline
 on:
   issues:
     types: [opened, reopened, labeled]
+  issue_comment:
+    types: [created]
   pull_request_review:
     types: [submitted]
 
@@ -57,6 +60,45 @@ jobs:
               issue_number: issueNumber,
               body: 'Queued for autonomous execution with `agent:run`. The next human action should be reviewing or merging the resulting PR unless the pipeline asks one narrow decision question.',
             });
+
+  # ──────────────────────────────────────────────────────────
+  # Trigger C：Codex Cloud 尚未設定 repo environment 時，轉成明確的外部設定 blocker
+  # ──────────────────────────────────────────────────────────
+  codex-environment-blocker:
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.comment.user.login == 'chatgpt-codex-connector' &&
+      contains(github.event.comment.body, 'create an environment for this repo')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark Codex environment setup blocker
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_USER_TOKEN }}
+          script: |
+            const issueNumber = context.payload.issue.number;
+            const marker = '<!-- agent:codex-environment-blocker -->';
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['agent:needs-user-decision'],
+            });
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            if (!comments.some((comment) => (comment.body || '').includes(marker))) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `${marker}\nCodex Cloud could not review this PR because the repo has no active Codex environment. This is an external account setup step: create the environment in ChatGPT/Codex settings, then comment \`@codex review\` once to resume the review loop.`,
+              });
+            }
 
   # ──────────────────────────────────────────────────────────
   # Trigger P：label 觸發 Claude 只做 issue 拆解，不改 code、不開 PR

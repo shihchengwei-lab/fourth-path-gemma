@@ -13,3 +13,21 @@
 5. 一致但仍不觸發 → 看 Actions tab 是否有錯誤 log
 
 **預防**：每月開一個普通測試 PR，確認 pipeline 仍能跑通。
+
+## 2. Codex 回覆「create an environment for this repo」
+
+**症狀**：PR 上的 `@codex review` 沒有產生 PR review，反而收到 Codex comment：
+
+```text
+To use Codex here, create an environment for this repo.
+```
+
+**判斷**：這不是 workflow YAML 或 Claude 修正邏輯失敗，而是 ChatGPT/Codex Cloud 的 repo environment 尚未啟用或已失效。workflow 無法自行建立這個外部帳號設定。
+
+**處理**：
+
+1. 到 Codex Cloud settings 建立或修復此 repo 的 environment。
+2. 回到 PR 留一次 `@codex review`。
+3. 若 Codex 產生 PR review，Trigger B 會繼續自動修正並要求下一輪 review。
+
+**自動標記**：workflow 會在偵測到這個 Codex comment 時，對該 PR 加上 `agent:needs-user-decision`，並只留一則說明 comment。
