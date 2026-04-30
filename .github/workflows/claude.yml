@@ -182,8 +182,44 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: 'Cold-eyes refusal logged — 等待 SHIHCHENG 裁決',
+              body: 'Cold-eyes refusal logged — recovery step will inspect the stuck state and either create a recovery issue or ask one narrow question.',
             });
+
+      # 觸發動作 4/4：重複 review 後不再只等待人工裁決，而是嘗試建立 recovery issue
+      - name: Run Claude recovery step
+        if: steps.detect.outputs.duplicate == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          show_full_output: true
+          github_token: ${{ secrets.GH_USER_TOKEN }}
+          bot_id: 267302701
+          bot_name: shihchengwei-lab
+          allowed_bots: chatgpt-codex-connector
+          prompt: |
+            You are recovering from a failed or stuck agent run on PR #${{ github.event.pull_request.number }}.
+
+            Do not repeat the same failed action.
+            Do not edit code.
+            Do not push commits to the PR branch.
+            Do not open a pull request.
+
+            Recovery task:
+            1. Read the PR title, body, and latest relevant Codex review comments.
+            2. Summarize what happened and what work remains.
+            3. If the remaining work is clear, small, and actionable, create exactly one recovery issue.
+               - Label it agent:run and agent:child.
+               - Link it back to PR #${{ github.event.pull_request.number }}.
+               - Include scope, non-goals, validation command, and acceptance criteria.
+               - Comment on the PR with the recovery issue link.
+            4. If the remaining work requires a real human product/design/governance decision, do not create a recovery issue.
+               - Label PR #${{ github.event.pull_request.number }} with agent:needs-user-decision.
+               - Post exactly one narrow question on the PR.
+
+            Create at most one recovery issue for this stuck event.
+          claude_args: |
+            --max-turns 20
+            --allowed-tools "Bash(gh:*),Read"
 
       # 沒重複 → 真的呼叫 Claude 修正
       - name: Run Claude Code Action
