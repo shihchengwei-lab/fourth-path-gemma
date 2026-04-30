@@ -36,7 +36,7 @@ class PolicyError(ValueError):
 def load_policy(path: Path) -> Policy:
     try:
         text = Path(path).read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise PolicyError(f"cannot read policy file: {exc}") from exc
 
     try:
