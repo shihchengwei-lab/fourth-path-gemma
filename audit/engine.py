@@ -6,6 +6,8 @@ from audit.matcher import MatcherError, match_rule
 from audit.policy import PolicyError, load_policy
 from audit.result import AuditMatch, AuditResult
 
+CLAUSE_PRECEDENCE: tuple[str, ...] = ("C2", "C3", "C1")
+
 
 def run_audit(candidate: str, policy_path: Path | str) -> AuditResult:
     try:
@@ -34,10 +36,15 @@ def run_audit(candidate: str, policy_path: Path | str) -> AuditResult:
     if not all_matches:
         return AuditResult(verdict="pass", canon_clause=None, reason="no_matches", matches=())
 
-    first = all_matches[0]
+    selected = select_canon_match(all_matches)
     return AuditResult(
         verdict="fail",
-        canon_clause=first.rule_id,
-        reason=first.reason,
+        canon_clause=selected.rule_id,
+        reason=selected.reason,
         matches=tuple(all_matches),
     )
+
+
+def select_canon_match(matches: list[AuditMatch]) -> AuditMatch:
+    priority = {clause: index for index, clause in enumerate(CLAUSE_PRECEDENCE)}
+    return min(matches, key=lambda match: priority.get(match.rule_id, len(priority)))
