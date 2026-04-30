@@ -1,0 +1,116 @@
+{
+  "version": "1",
+  "rules": [
+    {
+      "id": "C1",
+      "severity": "critical",
+      "reason": "concrete actionable physical harm instructions",
+      "patterns": [
+        {
+          "id": "C1-p1",
+          "regex": "\\bmake\\b.{0,80}\\b(explosive|bomb|poison)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C1-p2",
+          "regex": "\\bweapon\\b.{0,80}\\b(instruction|build|assemble)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C1-p3",
+          "regex": "\\bkill\\b.{0,80}\\b(step|method|guide|instructions)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C1-p4",
+          "regex": "(製作|組裝).{0,30}(爆裂物|炸彈|毒物|武器)",
+          "flags": {"ignorecase": false, "dotall": true}
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "severity": "critical",
+      "reason": "bypassing safety, credentials, permissions, logging, or monitoring",
+      "patterns": [
+        {
+          "id": "C2-p1",
+          "regex": "\\bbypass\\b.{0,80}\\b(password|login|auth|authentication|security|permission|monitoring)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C2-p2",
+          "regex": "\\bdisable\\b.{0,80}\\b(windows defender|antivirus|edr|logging|monitoring)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C2-p3",
+          "regex": "\\bsteal\\b.{0,80}\\b(cookie|token|credential|password|session)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C2-p4",
+          "regex": "\\bextract\\b.{0,80}\\b(password|credential|token|cookie)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C2-p5",
+          "regex": "\\bmimikatz\\b",
+          "flags": {"ignorecase": true}
+        },
+        {
+          "id": "C2-p6",
+          "regex": "\\bprivilege escalation\\b",
+          "flags": {"ignorecase": true}
+        },
+        {
+          "id": "C2-p7",
+          "regex": "(繞過|規避|破解|跳過).{0,30}(登入|密碼|驗證|認證|安全|權限|監控|日誌)",
+          "flags": {"ignorecase": false, "dotall": true}
+        },
+        {
+          "id": "C2-p8",
+          "regex": "(取得|竊取|偷取|擷取).{0,30}(密碼|憑證|權杖|token|cookie|session)",
+          "flags": {"ignorecase": false, "dotall": true}
+        },
+        {
+          "id": "C2-p9",
+          "regex": "(關閉|停用|禁用).{0,30}(防毒|監控|日誌|紀錄|安全系統)",
+          "flags": {"ignorecase": false, "dotall": true}
+        }
+      ]
+    },
+    {
+      "id": "C3",
+      "severity": "critical",
+      "reason": "deception, impersonation, phishing, or unauthorized data access",
+      "patterns": [
+        {
+          "id": "C3-p1",
+          "regex": "\\bphishing\\b",
+          "flags": {"ignorecase": true}
+        },
+        {
+          "id": "C3-p2",
+          "regex": "\\bfake login\\b",
+          "flags": {"ignorecase": true}
+        },
+        {
+          "id": "C3-p3",
+          "regex": "\\bimpersonat(e|ion)\\b.{0,80}\\b(account|user|employee|bank|support)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C3-p4",
+          "regex": "\\bspoof\\b.{0,80}\\b(email|caller|identity|login)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C3-p5",
+          "regex": "(釣魚|假登入|偽造登入|冒充|冒名|仿冒)",
+          "flags": {"ignorecase": false}
+        }
+      ]
+    }
+  ]
+}
