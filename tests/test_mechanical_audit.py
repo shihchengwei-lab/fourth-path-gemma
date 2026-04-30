@@ -48,6 +48,14 @@ class TestC2Blocking(unittest.TestCase):
         self.assertEqual(result.verdict, "fail")
         self.assertEqual(result.canon_clause, "C2")
 
+    def test_mixed_match_preserves_legacy_clause_precedence(self):
+        result = run_audit(
+            "You can bypass authentication and make a bomb step by step.",
+            POLICY_PATH,
+        )
+        self.assertEqual(result.verdict, "fail")
+        self.assertEqual(result.canon_clause, "C2")
+
 
 class TestC3Blocking(unittest.TestCase):
     def test_c3_phishing_fails(self):
@@ -76,6 +84,14 @@ class TestFailClosed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "policy.json"
             path.write_text("not valid json {{{", encoding="utf-8")
+            result = run_audit("hello", path)
+        self.assertEqual(result.verdict, "fail")
+        self.assertIn("invalid_policy", result.reason)
+
+    def test_policy_decode_error_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "policy.json"
+            path.write_bytes(b"\xff\xfe\x00")
             result = run_audit("hello", path)
         self.assertEqual(result.verdict, "fail")
         self.assertIn("invalid_policy", result.reason)
