@@ -508,7 +508,7 @@ def run_pipeline(
             )
             continue
 
-        verdict = mechanical_cold_eyes_review(DEFAULT_POLICY_PATH, candidate)
+        verdict = mechanical_cold_eyes_review(canon, candidate)
         entry.cold_eyes_verdict = verdict.verdict
         entry.canon_clause = verdict.canon_clause
 
