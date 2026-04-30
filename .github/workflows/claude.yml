@@ -52,7 +52,7 @@ jobs:
             description uses that structure (at minimum: severity, evidence,
             suggested_validation).
           claude_args: |
-            --max-turns 10
+            --max-turns 30
             --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
 
   # ──────────────────────────────────────────────────────────
