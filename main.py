@@ -15,7 +15,10 @@ from pathlib import Path
 from typing import Any
 
 
+from audit.engine import run_audit
+
 PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_POLICY_PATH = PROJECT_ROOT / "policies" / "fourth_path_safety.json"
 DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 DEFAULT_TIMEOUT_SECONDS = 600
@@ -367,6 +370,33 @@ def cold_eyes_review(client: Any, model: str, canon: str, candidate: str) -> Col
     )
     raw = client.chat(model=model, system=COLD_EYES_SYSTEM_PROMPT, user=user_content)
     return parse_cold_eyes_json(raw)
+
+
+def mechanical_cold_eyes_review(policy_path: Path | str, candidate: str) -> ColdEyesVerdict:
+    audit_result = run_audit(candidate, policy_path)
+    raw = json.dumps(
+        {
+            "verdict": audit_result.verdict,
+            "canon_clause": audit_result.canon_clause,
+            "reason": audit_result.reason,
+            "matches": [
+                {
+                    "rule_id": m.rule_id,
+                    "pattern_id": m.pattern_id,
+                    "severity": m.severity,
+                    "reason": m.reason,
+                }
+                for m in audit_result.matches
+            ],
+        },
+        ensure_ascii=False,
+    )
+    return ColdEyesVerdict(
+        verdict=audit_result.verdict,
+        canon_clause=audit_result.canon_clause,
+        reason=audit_result.reason,
+        raw=raw,
+    )
 
 
 def parse_cold_eyes_json(raw: str) -> ColdEyesVerdict:
