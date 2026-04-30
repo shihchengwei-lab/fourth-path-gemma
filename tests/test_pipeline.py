@@ -10,7 +10,7 @@ class PipelineTests(unittest.TestCase):
     def test_passes_clean_candidate(self):
         client = main.FakeClient(
             main_outputs=["This is a concise summary."],
-            cold_outputs=['{"verdict":"pass","canon_clause":null,"reason":""}'],
+            cold_outputs=[],
         )
         with tempfile.TemporaryDirectory() as tmp:
             result = main.run_pipeline(
@@ -27,14 +27,17 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.audit[0].classify_route, "forward_to_cold_eyes")
         self.assertEqual(result.audit[0].cold_eyes_verdict, "pass")
 
-    def test_refuses_after_three_cold_eyes_failures(self):
+    def test_refuses_after_three_canon_issue_attempts(self):
+        # Mechanical Cold Eyes uses the same patterns as classify_candidate, so
+        # canon-violating candidates are caught at classify step. Three consecutive
+        # canon_issue results still exhaust MAX_ATTEMPTS and produce a refusal.
         client = main.FakeClient(
-            main_outputs=["candidate one", "candidate two", "candidate three"],
-            cold_outputs=[
-                '{"verdict":"fail","canon_clause":"C2","reason":"blocked"}',
-                '{"verdict":"fail","canon_clause":"C2","reason":"blocked"}',
-                '{"verdict":"fail","canon_clause":"C2","reason":"blocked"}',
+            main_outputs=[
+                "You can bypass authentication here.",
+                "Here is how to bypass password protection.",
+                "Use this to bypass login credentials.",
             ],
+            cold_outputs=[],
         )
         with tempfile.TemporaryDirectory() as tmp:
             result = main.run_pipeline(
@@ -49,6 +52,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.attempts, 3)
         self.assertEqual(result.output, main.REFUSAL_OUTPUT)
         self.assertEqual(result.audit[-1].final_status, "refused")
+        cold_llm_calls = [
+            c for c in client.calls if c["system"] == main.COLD_EYES_SYSTEM_PROMPT
+        ]
+        self.assertEqual(cold_llm_calls, [])
 
     def test_main_agent_refusal_is_not_final_output(self):
         client = main.FakeClient(
@@ -96,7 +103,7 @@ class PipelineTests(unittest.TestCase):
                 "Use these steps to bypass password authentication.",
                 "Use the documented account recovery process.",
             ],
-            cold_outputs=['{"verdict":"pass","canon_clause":null,"reason":""}'],
+            cold_outputs=[],
         )
         with tempfile.TemporaryDirectory() as tmp:
             result = main.run_pipeline(
@@ -115,11 +122,12 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("C2", second_main_call["user"])
         self.assertNotIn("keyword_prefilter", second_main_call["user"])
 
-    def test_cold_eyes_receives_only_canon_and_candidate(self):
+    def test_run_pipeline_does_not_call_llm_cold_eyes(self):
+        # run_pipeline uses the mechanical adapter; no LLM Cold Eyes call should occur.
         marker = "USER_SECRET_MARKER"
         client = main.FakeClient(
             main_outputs=["Candidate without the marker."],
-            cold_outputs=['{"verdict":"pass","canon_clause":null,"reason":""}'],
+            cold_outputs=[],
         )
         with tempfile.TemporaryDirectory() as tmp:
             result = main.run_pipeline(
@@ -130,11 +138,10 @@ class PipelineTests(unittest.TestCase):
                 log_dir=Path(tmp),
             )
 
-        cold_call = [
+        cold_llm_calls = [
             call for call in client.calls if call["system"] == main.COLD_EYES_SYSTEM_PROMPT
-        ][0]
-        self.assertNotIn(marker, cold_call["user"])
-        self.assertNotIn(main.MAIN_AGENT_SYSTEM_PROMPT, cold_call["user"])
+        ]
+        self.assertEqual(cold_llm_calls, [])
         self.assertEqual(result.status, "pass")
 
     def test_audit_log_omits_prompt_system_and_candidate(self):
@@ -142,7 +149,7 @@ class PipelineTests(unittest.TestCase):
         candidate = "Candidate output marker"
         client = main.FakeClient(
             main_outputs=[candidate],
-            cold_outputs=['{"verdict":"pass","canon_clause":null,"reason":""}'],
+            cold_outputs=[],
         )
         with tempfile.TemporaryDirectory() as tmp:
             result = main.run_pipeline(
@@ -252,7 +259,7 @@ class PipelineTests(unittest.TestCase):
     def test_chat_normal_input_calls_pipeline_and_outputs_answer(self):
         client = main.FakeClient(
             main_outputs=["chat answer"],
-            cold_outputs=['{"verdict":"pass","canon_clause":null,"reason":""}'],
+            cold_outputs=[],
         )
         outputs = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -267,7 +274,7 @@ class PipelineTests(unittest.TestCase):
 
         self.assertTrue(any("chat answer" in output for output in outputs))
         self.assertTrue(any("status=pass" in output for output in outputs))
-        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(len(client.calls), 1)
 
     def test_chat_refusal_outputs_fixed_refusal(self):
         client = main.FakeClient(main_outputs=[], cold_outputs=[])
@@ -291,10 +298,7 @@ class PipelineTests(unittest.TestCase):
         marker = "MEMORY_MARKER"
         client = main.FakeClient(
             main_outputs=["first answer", "second answer"],
-            cold_outputs=[
-                '{"verdict":"pass","canon_clause":null,"reason":""}',
-                '{"verdict":"pass","canon_clause":null,"reason":""}',
-            ],
+            cold_outputs=[],
         )
         with tempfile.TemporaryDirectory() as tmp:
             main.run_chat_loop(
@@ -316,10 +320,7 @@ class PipelineTests(unittest.TestCase):
         marker = "MEMORY_MARKER"
         client = main.FakeClient(
             main_outputs=["first answer", "second answer"],
-            cold_outputs=[
-                '{"verdict":"pass","canon_clause":null,"reason":""}',
-                '{"verdict":"pass","canon_clause":null,"reason":""}',
-            ],
+            cold_outputs=[],
         )
         outputs = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -339,14 +340,13 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("first answer", second_main_call["user"])
         self.assertTrue(any("[memory reset]" in output for output in outputs))
 
-    def test_chat_cold_eyes_does_not_receive_chat_history(self):
+    def test_chat_does_not_call_llm_cold_eyes(self):
+        # run_pipeline uses the mechanical adapter; no LLM Cold Eyes call should occur
+        # in any chat turn, so chat history cannot leak into Cold Eyes LLM context.
         marker = "MEMORY_MARKER"
         client = main.FakeClient(
             main_outputs=["candidate one", "candidate two"],
-            cold_outputs=[
-                '{"verdict":"pass","canon_clause":null,"reason":""}',
-                '{"verdict":"pass","canon_clause":null,"reason":""}',
-            ],
+            cold_outputs=[],
         )
         with tempfile.TemporaryDirectory() as tmp:
             main.run_chat_loop(
@@ -358,18 +358,15 @@ class PipelineTests(unittest.TestCase):
                 output_func=lambda _text: None,
             )
 
-        cold_calls = [
+        cold_llm_calls = [
             call for call in client.calls if call["system"] == main.COLD_EYES_SYSTEM_PROMPT
         ]
-        self.assertTrue(cold_calls)
-        for call in cold_calls:
-            self.assertNotIn(marker, call["user"])
-            self.assertNotIn(main.MAIN_AGENT_SYSTEM_PROMPT, call["user"])
+        self.assertEqual(cold_llm_calls, [])
 
     def test_chat_audit_toggle_shows_detailed_audit(self):
         client = main.FakeClient(
             main_outputs=["chat answer"],
-            cold_outputs=['{"verdict":"pass","canon_clause":null,"reason":""}'],
+            cold_outputs=[],
         )
         outputs = []
         with tempfile.TemporaryDirectory() as tmp:
