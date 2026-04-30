@@ -1,6 +1,7 @@
 name: Claude Code Pipeline
 
 # 三組 trigger 分清楚：
+#   Trigger 0 — new issue 沒有 agent:* label 時，自動加 agent:run，避免 SHIHCHENG 當 Orchestrator
 #   Trigger P — issue 被加上 agent:plan label 時，由 Claude 只做拆解規劃並建立 child issues
 #   Trigger A — issue 被加上 agent:run label 時，由 Claude 處理 issue 並開 PR
 #   Trigger B — PR review 提交時，若 reviewer 是 Codex bot 則由 Claude 修正
@@ -13,7 +14,7 @@ name: Claude Code Pipeline
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, reopened, labeled]
   pull_request_review:
     types: [submitted]
 
@@ -24,6 +25,39 @@ permissions:
   id-token: write  # 必填：Claude Code Action 即使用 OAuth token 也會嘗試取 OIDC token；缺這個 permission action 會在最開頭 die 在 OIDC 取不到
 
 jobs:
+  # ──────────────────────────────────────────────────────────
+  # Trigger 0：新 issue 若沒有 agent:* 狀態，直接排入執行
+  # ──────────────────────────────────────────────────────────
+  bootstrap-issue:
+    if: >
+      github.event_name == 'issues' &&
+      (github.event.action == 'opened' || github.event.action == 'reopened') &&
+      !contains(github.event.issue.labels.*.name, 'agent:plan') &&
+      !contains(github.event.issue.labels.*.name, 'agent:run') &&
+      !contains(github.event.issue.labels.*.name, 'agent:child') &&
+      !contains(github.event.issue.labels.*.name, 'agent:stuck') &&
+      !contains(github.event.issue.labels.*.name, 'agent:needs-user-decision')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue issue for autonomous execution
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_USER_TOKEN }}
+          script: |
+            const issueNumber = context.payload.issue.number;
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['agent:run'],
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: 'Queued for autonomous execution with `agent:run`. The next human action should be reviewing or merging the resulting PR unless the pipeline asks one narrow decision question.',
+            });
+
   # ──────────────────────────────────────────────────────────
   # Trigger P：label 觸發 Claude 只做 issue 拆解，不改 code、不開 PR
   # ──────────────────────────────────────────────────────────
@@ -53,6 +87,8 @@ jobs:
             - Read the issue title and body.
             - If the issue is too large for one Claude Action run, decompose it into 1-5 small executable child issues.
             - Each child issue must have: scope, non-goals, validation command, and acceptance criteria.
+            - Create child issues with labels in the same gh issue create/API call whenever possible.
+            - Label every child issue with agent:child.
             - Label only the first executable child issue with agent:run.
             - Link all child issues back to the parent issue.
             - Comment on the parent issue with the execution order and child issue links.
@@ -92,6 +128,7 @@ jobs:
             - Do not edit code.
             - Do not open a pull request.
             - Decompose the work into 1-5 small child issues.
+            - Create child issues with labels in the same gh issue create/API call whenever possible.
             - Label each child issue with agent:child.
             - Label only the first executable child issue with agent:run.
             - Link each child issue back to the parent issue.
@@ -100,7 +137,11 @@ jobs:
 
             If the task fits within one run:
             - Follow the governance in CLAUDE.md and the seven-column evidence-bound structure in docs/code-review.md.
-            - Implement the requested change and open a pull request whose description uses that structure (at minimum: severity, evidence, suggested_validation).
+            - Implement the requested change.
+            - Open a ready-for-review pull request whose description uses that structure (at minimum: severity, evidence, suggested_validation).
+            - Link the PR to this issue with a closing keyword so merge closes the issue.
+            - Remove agent:run from the source issue after the PR is open.
+            - Do not ask SHIHCHENG to coordinate intermediate review/fix rounds; only ask one narrow question if a real product, design, governance, credential, or permission decision cannot be inferred.
           claude_args: |
             --max-turns 30
             --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
@@ -222,6 +263,12 @@ jobs:
             --allowed-tools "Bash(gh:*),Read"
 
       # 沒重複 → 真的呼叫 Claude 修正
+      - name: Record PR head before fix
+        if: steps.detect.outputs.duplicate != 'true'
+        id: before_fix
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude Code Action
         if: steps.detect.outputs.duplicate != 'true'
         uses: anthropics/claude-code-action@v1
@@ -246,3 +293,32 @@ jobs:
           claude_args: |
             --max-turns 30
             --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
+
+      - name: Detect pushed fix commit
+        if: steps.detect.outputs.duplicate != 'true'
+        id: after_fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${{ github.event.pull_request.head.ref }}"
+          git fetch origin "$branch"
+          after_sha="$(git rev-parse "origin/${branch}")"
+          echo "sha=${after_sha}" >> "$GITHUB_OUTPUT"
+          if [ "${after_sha}" != "${{ steps.before_fix.outputs.sha }}" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Request next Codex review
+        if: steps.detect.outputs.duplicate != 'true' && steps.after_fix.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_USER_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: '@codex review',
+            });
