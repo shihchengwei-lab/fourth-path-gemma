@@ -158,5 +158,5 @@ jobs:
             Stay narrowly within the scope of the review—do not refactor or expand
             beyond fixing the issue raised. Commit and push the fix.
           claude_args: |
-            --max-turns 10
+            --max-turns 30
             --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
