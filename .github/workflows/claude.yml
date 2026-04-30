@@ -1,6 +1,7 @@
 name: Claude Code Pipeline
 
-# 兩組 trigger 分清楚（agent-pipeline-v3/01-install.md §B）：
+# 三組 trigger 分清楚：
+#   Trigger P — issue 被加上 agent:plan label 時，由 Claude 只做拆解規劃並建立 child issues
 #   Trigger A — issue 被加上 agent:run label 時，由 Claude 處理 issue 並開 PR
 #   Trigger B — PR review 提交時，若 reviewer 是 Codex bot 則由 Claude 修正
 #
@@ -23,6 +24,43 @@ permissions:
   id-token: write  # 必填：Claude Code Action 即使用 OAuth token 也會嘗試取 OIDC token；缺這個 permission action 會在最開頭 die 在 OIDC 取不到
 
 jobs:
+  # ──────────────────────────────────────────────────────────
+  # Trigger P：label 觸發 Claude 只做 issue 拆解，不改 code、不開 PR
+  # ──────────────────────────────────────────────────────────
+  plan-issue:
+    if: github.event_name == 'issues' && github.event.label.name == 'agent:plan'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          show_full_output: true
+          github_token: ${{ secrets.GH_USER_TOKEN }}
+          bot_id: 267302701
+          bot_name: shihchengwei-lab
+          prompt: |
+            You are the planning layer for this repo's agent pipeline.
+
+            Process GitHub issue #${{ github.event.issue.number }} in planning-only mode.
+
+            Rules:
+            - Do not edit code.
+            - Do not open a pull request.
+            - Do not implement the requested change.
+            - Read the issue title and body.
+            - If the issue is too large for one Claude Action run, decompose it into 1-5 small executable child issues.
+            - Each child issue must have: scope, non-goals, validation command, and acceptance criteria.
+            - Label only the first executable child issue with agent:run.
+            - Link all child issues back to the parent issue.
+            - Comment on the parent issue with the execution order and child issue links.
+            - Ask SHIHCHENG only if there is a true product or design decision that cannot be inferred.
+          claude_args: |
+            --max-turns 30
+            --allowed-tools "Bash(gh:*),Read"
+
   # ──────────────────────────────────────────────────────────
   # Trigger A：label 觸發 Claude 處理 issue
   # ──────────────────────────────────────────────────────────
