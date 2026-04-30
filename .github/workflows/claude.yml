@@ -1,5 +1,7 @@
 name: Claude Code Pipeline
 
+# Temporary smoke test: GH_USER_TOKEN workflow-scope smoke test (issue #43)
+
 # 三組 trigger 分清楚：
 #   Trigger 0 — new issue 沒有 agent:* label 時，自動加 agent:run，避免 SHIHCHENG 當 Orchestrator
 #   Trigger P — issue 被加上 agent:plan label 時，由 Claude 只做拆解規劃並建立 child issues
