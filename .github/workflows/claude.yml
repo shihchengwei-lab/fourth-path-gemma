@@ -84,11 +84,23 @@ jobs:
           bot_name: shihchengwei-lab
           prompt: |
             Process GitHub issue #${{ github.event.issue.number }}.
-            Read the issue title and body. Follow the governance in CLAUDE.md
-            and the seven-column evidence-bound structure in docs/code-review.md.
-            Implement the requested change and open a pull request whose
-            description uses that structure (at minimum: severity, evidence,
-            suggested_validation).
+
+            First, read the issue title and body and assess task size.
+            Decide whether the requested task fits within one approximately 30-turn Claude Action run.
+
+            If the task is clearly too large or oversized for one run:
+            - Do not edit code.
+            - Do not open a pull request.
+            - Decompose the work into 1-5 small child issues.
+            - Label each child issue with agent:child.
+            - Label only the first executable child issue with agent:run.
+            - Link each child issue back to the parent issue.
+            - Post a comment on the parent explaining that scope exceeded one run and listing the child issues.
+            - Stop after creating the child issues and comment.
+
+            If the task fits within one run:
+            - Follow the governance in CLAUDE.md and the seven-column evidence-bound structure in docs/code-review.md.
+            - Implement the requested change and open a pull request whose description uses that structure (at minimum: severity, evidence, suggested_validation).
           claude_args: |
             --max-turns 30
             --allowed-tools "Bash(git:*),Bash(gh:*),Edit,Write,Read"
