@@ -38,6 +38,7 @@ jobs:
       !contains(github.event.issue.labels.*.name, 'agent:plan') &&
       !contains(github.event.issue.labels.*.name, 'agent:run') &&
       !contains(github.event.issue.labels.*.name, 'agent:child') &&
+      !contains(github.event.issue.labels.*.name, 'agent:parent') &&
       !contains(github.event.issue.labels.*.name, 'agent:stuck') &&
       !contains(github.event.issue.labels.*.name, 'agent:needs-user-decision')
     runs-on: ubuntu-latest
