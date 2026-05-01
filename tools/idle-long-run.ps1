@@ -126,3 +126,10 @@ if ($IncludeModelTrials) {
 }
 
 "Idle long run completed at $(Get-Date -Format s)" | Tee-Object -FilePath $logPath -Append
+"" | Tee-Object -FilePath $logPath -Append
+"Idle long run summary:" | Tee-Object -FilePath $logPath -Append
+& $Python "main.py" "idle-run-summary" "--runs-dir" $RunsDir "--stamp" $stamp |
+    Tee-Object -FilePath $logPath -Append
+if ($LASTEXITCODE -ne 0) {
+    throw "Step failed: idle run summary"
+}

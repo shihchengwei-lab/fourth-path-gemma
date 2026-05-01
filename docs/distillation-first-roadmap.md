@@ -22,6 +22,18 @@ It includes the architecture adversarial seed gate, Main Agent corpus gates,
 data-quality checks, SFT format validation, Cold Eyes distillation balance,
 verifier/tool-use boundary checks, and inference-compute readiness checks.
 
+Long idle runs now have a separate summary pass:
+
+```powershell
+python main.py idle-run-summary
+python main.py idle-run-summary --stamp 20260502-053750 --json
+```
+
+The summary reads the `idle-long-run` log plus same-stamp JSON artifacts and
+reports only metrics: step status, Main Agent clean counts, benchmark pass
+counts, architecture adversarial pass counts, and Cold Eyes exact-match counts.
+It does not print prompts, targets, candidates, or model outputs.
+
 ## 1. Distillation Data Quality
 
 Data quality is the first gate.

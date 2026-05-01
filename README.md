@@ -477,7 +477,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\idle-long-run.ps1
 That script runs static checks, the architecture adversarial eval, the slow
 Qwen3 main-eval, benchmark, and strict Cold Eyes eval sequence, then writes
 timestamped outputs under `runs\`. It is intentionally not a scheduled task or
-background service.
+background service. At the end it appends a compact metric summary to the log
+so the next improvement round can start from evidence instead of manually
+opening every JSON file.
+
+Summarize the latest idle run without printing prompt or model-output text:
+
+```powershell
+python main.py idle-run-summary
+python main.py idle-run-summary --stamp 20260502-053750 --json
+```
 
 Validate the synthetic Cold Eyes distillation seed corpus:
 

@@ -1942,6 +1942,15 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.distill_file, "cold.jsonl")
         self.assertTrue(args.json)
 
+    def test_parser_accepts_idle_run_summary_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(["idle-run-summary", "--runs-dir", "out", "--stamp", "20260502-053750", "--json"])
+
+        self.assertEqual(args.command, "idle-run-summary")
+        self.assertEqual(args.runs_dir, "out")
+        self.assertEqual(args.stamp, "20260502-053750")
+        self.assertTrue(args.json)
+
     def test_next_token_headroom_distinguishes_ollama_from_token_backend(self):
         ollama = main.next_token_headroom_data("ollama-chat")
         sglang = main.next_token_headroom_data("sglang-r2r")
@@ -1992,6 +2001,114 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("System secret marker", encoded)
         self.assertNotIn("Prompt secret marker", encoded)
         self.assertNotIn("Assistant secret marker", encoded)
+
+    def test_idle_run_summary_reads_metrics_without_private_text(self):
+        stamp = "20260502-053750"
+        with tempfile.TemporaryDirectory() as tmp:
+            runs_dir = Path(tmp)
+            (runs_dir / f"idle-long-run-{stamp}.log").write_text(
+                "\n".join(
+                    [
+                        "Idle long run started at 2026-05-02T05:37:50",
+                        f"Log: {runs_dir}\\idle-long-run-{stamp}.log",
+                        "[2026-05-02T05:37:50] START unit tests",
+                        "[2026-05-02T05:37:51] END unit tests exit=0 seconds=1",
+                        "[2026-05-02T05:37:51] START main eval local max",
+                        "[2026-05-02T05:37:54] END main eval local max exit=0 seconds=3",
+                        "Idle long run completed at 2026-05-02T05:37:54",
+                    ]
+                )
+                + "\n",
+                encoding="utf-16",
+            )
+            (runs_dir / f"architecture-adversarial-eval-qwen3-8b-local-max-idle-{stamp}.json").write_text(
+                json.dumps(
+                    {
+                        "total": 19,
+                        "passed": 19,
+                        "failed": 0,
+                        "pass_rate": 1.0,
+                        "layer_counts": {"pipeline": 6},
+                        "layer_passed": {"pipeline": 6},
+                        "issue_counts": {},
+                        "audit_source_counts": {},
+                        "total_main_calls": 7,
+                        "total_duration_ms": 1000,
+                        "cases": [{"prompt": "Prompt secret marker.", "output": "Output secret marker."}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runs_dir / f"main-eval-qwen3-8b-local-max-idle-{stamp}.json").write_text(
+                json.dumps(
+                    {
+                        "total": 40,
+                        "clean_count": 38,
+                        "issue_cases": 2,
+                        "refusal_like_count": 0,
+                        "overlong_count": 1,
+                        "average_length_ratio": 1.9,
+                        "issue_counts": {"overlong_candidate": 1},
+                        "category_issue_counts": {"zh": 1},
+                        "local_selection_triggered_count": 0,
+                        "local_selection_applied_count": 0,
+                        "total_main_calls": 40,
+                        "clean_per_main_call": 0.95,
+                        "total_duration_ms": 2000,
+                        "cases": [{"prompt": "Hidden prompt.", "target_response": "Hidden target."}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runs_dir / f"bench-qwen3-8b-local-max-idle-{stamp}.json").write_text(
+                json.dumps(
+                    {
+                        "total_cases": 4,
+                        "pass_count": 3,
+                        "refused_count": 1,
+                        "total_main_calls": 3,
+                        "average_main_calls_per_case": 0.75,
+                        "total_duration_ms": 3000,
+                        "cases": [{"status": "pass", "prompt": "Bench prompt."}, {"status": "refused"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runs_dir / f"distill-eval-qwen3-8b-local-max-idle-{stamp}.json").write_text(
+                json.dumps(
+                    {
+                        "audit_model": "qwen3:8b",
+                        "total": 44,
+                        "verdict_matches": 44,
+                        "exact_matches": 44,
+                        "partial_matches": 0,
+                        "verdict_misses": 0,
+                        "mechanical_cases": 25,
+                        "llm_cases": 19,
+                        "mismatches": [],
+                        "mismatch_counts_by_expected_clause": {},
+                        "exact_accuracy": 1.0,
+                        "total_duration_ms": 4000,
+                        "cases": [{"candidate": "Candidate secret marker."}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            data = main.idle_run_summary_data(runs_dir, stamp=stamp)
+
+        encoded = json.dumps(data, ensure_ascii=False)
+        self.assertEqual(data["errors"], [])
+        self.assertTrue(data["completed"])
+        self.assertEqual(data["log"]["step_count"], 2)
+        self.assertEqual(data["artifacts"]["main_eval"][0]["clean_count"], 38)
+        self.assertEqual(data["artifacts"]["bench"][0]["status_counts"]["pass"], 1)
+        self.assertEqual(data["artifacts"]["distill_eval"][0]["exact_matches"], 44)
+        self.assertEqual(data["artifacts"]["architecture_adversarial"][0]["passed"], 19)
+        self.assertNotIn("Prompt secret marker", encoded)
+        self.assertNotIn("Hidden prompt", encoded)
+        self.assertNotIn("Bench prompt", encoded)
+        self.assertNotIn("Candidate secret marker", encoded)
 
     def test_main_agent_seed_corpus_is_valid(self):
         result = main.check_main_agent_corpus(main.PROJECT_ROOT / "data" / "main_agent_seed.jsonl")
