@@ -428,8 +428,8 @@ python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max
 ```
 
 `local-release-gate` is a no-Ollama preflight. It runs the data-quality,
-distillation-format, verifier/tool-use, and inference-compute readiness gates
-before any slower model evaluation.
+architecture adversarial seed, distillation-format, verifier/tool-use, and
+inference-compute readiness gates before any slower model evaluation.
 
 The Main Agent seed corpus currently has 40 synthetic records, including
 near-boundary defensive security tasks and concise-control tasks. Recent

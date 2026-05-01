@@ -18,6 +18,10 @@ One local no-Ollama gate now runs the publishable subset in this same order:
 python main.py local-release-gate --json
 ```
 
+It includes the architecture adversarial seed gate, Main Agent corpus gates,
+data-quality checks, SFT format validation, Cold Eyes distillation balance,
+verifier/tool-use boundary checks, and inference-compute readiness checks.
+
 ## 1. Distillation Data Quality
 
 Data quality is the first gate.

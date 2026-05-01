@@ -4553,6 +4553,11 @@ def sft_export_format_gate_data(path: Path) -> dict[str, Any]:
 
 def local_release_gate_data(distill_path: Path) -> dict[str, Any]:
     architecture = architecture_check_data()
+    architecture_adversarial = apply_architecture_adversarial_requirements(
+        check_architecture_adversarial_corpus(PROJECT_ROOT / "data" / "architecture_adversarial_seed.jsonl"),
+        min_total=19,
+        min_layer=6,
+    )
     seed_check = apply_main_agent_requirements(
         check_main_agent_corpus(PROJECT_ROOT / "data" / "main_agent_seed.jsonl"),
         min_total=40,
@@ -4581,6 +4586,7 @@ def local_release_gate_data(distill_path: Path) -> dict[str, Any]:
 
     errors: list[str] = []
     errors.extend(prefixed_errors("architecture", architecture["errors"]))
+    errors.extend(prefixed_errors("architecture_adversarial", architecture_adversarial.errors))
     errors.extend(prefixed_errors("main_seed", seed_check.errors))
     errors.extend(prefixed_errors("main_hard", hard_check.errors))
     errors.extend(prefixed_errors("main_heldout", heldout_check.errors))
@@ -4596,6 +4602,7 @@ def local_release_gate_data(distill_path: Path) -> dict[str, Any]:
             "total": architecture["total"],
             "errors": architecture["errors"],
         },
+        "architecture_adversarial": architecture_adversarial.public_dict(),
         "main_corpora": {
             "seed": seed_check.public_dict(),
             "hard": hard_check.public_dict(),
@@ -4620,6 +4627,15 @@ def render_local_release_gate(data: dict[str, Any]) -> str:
     lines = [
         f"Local release gate: {status}",
         f"Architecture: {data['architecture']['passed']}/{data['architecture']['total']}",
+        (
+            "Architecture adversarial: records={total}, "
+            "pipeline={pipeline}, cold_eyes={cold_eyes}, action={action}"
+        ).format(
+            total=data["architecture_adversarial"]["total"],
+            pipeline=data["architecture_adversarial"]["layers"].get("pipeline", 0),
+            cold_eyes=data["architecture_adversarial"]["layers"].get("cold_eyes", 0),
+            action=data["architecture_adversarial"]["layers"].get("action", 0),
+        ),
         (
             "Main corpora: seed={seed}, hard={hard}, heldout={heldout}"
         ).format(

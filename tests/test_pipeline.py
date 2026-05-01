@@ -1967,6 +1967,8 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(data["errors"], [])
         self.assertEqual(data["architecture"]["passed"], data["architecture"]["total"])
+        self.assertGreaterEqual(data["architecture_adversarial"]["total"], 19)
+        self.assertGreaterEqual(data["architecture_adversarial"]["layers"]["action"], 6)
         self.assertEqual(data["main_corpora"]["seed"]["total"], 40)
         self.assertEqual(data["main_corpora"]["hard"]["total"], 16)
         self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
