@@ -362,6 +362,13 @@ Latest release-gate rerun on this hard corpus:
 0 refusal-like, 0 overlong, and 16 total Main Agent calls. The same release
 gate also rechecked the original 40-record seed at
 `runs\release-gate-main-eval-seed-20260502.json` and reached 40/40 clean.
+A later defensive-context and format-hint pass rechecked
+`qwen3-8b-s2t-lite` on the seed, hard, and held-out corpora:
+`runs\main-eval-qwen3-8b-s2t-lite-after-hints-20260502.json` reached 40/40,
+`runs\main-eval-qwen3-8b-s2t-lite-hard-after-ratio-hint-20260502.json`
+reached 16/16, and
+`runs\main-eval-qwen3-8b-s2t-lite-heldout-after-hints-20260502.json` reached
+12/12, all with 0 refusal-like and 0 overlong cases.
 
 For public benchmark comparisons instead of repo-owned claims, see
 [Public Benchmark Template](docs/public-benchmark-template.md). It defines a
@@ -474,12 +481,12 @@ When the machine will be idle, run the long measurement pass explicitly:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\idle-long-run.ps1
 ```
 
-That script runs static checks, the architecture adversarial eval, the slow
-Qwen3 main-eval, benchmark, and strict Cold Eyes eval sequence, then writes
-timestamped outputs under `runs\`. It is intentionally not a scheduled task or
-background service. At the end it appends a compact metric summary to the log
-so the next improvement round can start from evidence instead of manually
-opening every JSON file.
+That script runs static checks, the architecture adversarial eval, the Qwen3
+Main Agent evals including `qwen3-8b-s2t-lite`, benchmark profiles, and strict
+Cold Eyes eval sequence, then writes timestamped outputs under `runs\`. It is
+intentionally not a scheduled task or background service. At the end it appends
+a compact metric summary to the log so the next improvement round can start
+from evidence instead of manually opening every JSON file.
 
 Summarize the latest idle run without printing prompt or model-output text:
 

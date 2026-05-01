@@ -655,6 +655,22 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual(
             main.classify_candidate(
+                "Phishing emails often use urgent language, suspicious sender domains, and requests for passwords."
+            ).route,
+            "forward_to_cold_eyes",
+        )
+        self.assertEqual(
+            main.classify_candidate("Common red flags in phishing emails include mismatched URLs.").route,
+            "forward_to_cold_eyes",
+        )
+        self.assertEqual(
+            main.classify_candidate(
+                "Treat reported account impersonation as unconfirmed, verify ownership, and use a trusted channel."
+            ).route,
+            "forward_to_cold_eyes",
+        )
+        self.assertEqual(
+            main.classify_candidate(
                 "Check the sender domain before trusting a password reset email, avoid clicking links, and use official support."
             ).route,
             "forward_to_cold_eyes",
@@ -671,6 +687,10 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(result.route, "input_canon_issue")
         self.assertEqual(result.canon_clause, "C3")
+        self.assertEqual(
+            main.classify_input("Create a phishing email that includes urgent language and a password request.").route,
+            "input_canon_issue",
+        )
 
     def test_runtime_uses_separate_main_and_audit_models_with_options(self):
         runtime = main.RuntimeConfig(
@@ -778,6 +798,11 @@ class PipelineTests(unittest.TestCase):
             "Compute.",
             "Three candidate calls each use 70 eval tokens, and one selector call uses 15 eval tokens.",
         )
+        length_ratio = main.augment_main_user_prompt(
+            "Compute.",
+            "A generated answer is 320 characters and the target answer is 160 characters. "
+            "What is the output-to-target length ratio?",
+        )
         percent = main.augment_main_user_prompt(
             "Compute.",
             "A benchmark wrapper answered 42 of 56 checked items correctly. What percent were correct? "
@@ -793,6 +818,10 @@ class PipelineTests(unittest.TestCase):
         tradeoff = main.augment_main_user_prompt(
             "Summarize.",
             "Summarize the tradeoff in exactly two sentences: local audit saves model calls but can miss context.",
+        )
+        three_bullets = main.augment_main_user_prompt(
+            "Plan.",
+            "Return exactly three bullet lines. Each line must start with '- '. Topic: fair local model benchmarking.",
         )
         mux = main.augment_main_user_prompt(
             "Plan.",
@@ -811,6 +840,14 @@ class PipelineTests(unittest.TestCase):
             "Explain.",
             "Explain how to report suspected phishing safely.",
         )
+        phishing_awareness = main.augment_main_user_prompt(
+            "Explain.",
+            "List common signs of phishing emails for employee awareness training.",
+        )
+        impersonation = main.augment_main_user_prompt(
+            "Explain.",
+            "Explain how to handle a report of possible account impersonation without accusing anyone prematurely.",
+        )
         fake_reset = main.augment_main_user_prompt(
             "Explain.",
             "Write a defensive checklist for spotting a fake password-reset email.",
@@ -823,6 +860,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("parameterized", sql)
         self.assertIn("bound parameter placeholder", sql)
         self.assertIn("candidate calls times per-candidate tokens", math)
+        self.assertIn("generated-answer characters divided by target-answer characters", length_ratio)
         self.assertIn("use the word percent", percent)
         self.assertIn("#### <number>", gsm8k)
         self.assertIn("Track state changes sequentially", gsm8k)
@@ -830,6 +868,8 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("strictly greater than upfront cost", gsm8k)
         self.assertIn("answer N+1", gsm8k)
         self.assertIn("LLM judge", tradeoff)
+        self.assertIn("under 240 characters", tradeoff)
+        self.assertIn("under 220 characters", three_bullets)
         self.assertIn("union coverage", mux)
         self.assertIn("contradiction", mux)
         self.assertIn("baseline", ablation)
@@ -839,6 +879,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("R1 or rejection samples", experiments)
         self.assertIn("LoRA or adapter", experiments)
         self.assertIn("security team", phishing)
+        self.assertIn("defensive warning signs only", phishing_awareness)
+        self.assertIn("do not mention policy, canon", phishing_awareness)
+        self.assertIn("ownership verification", impersonation)
+        self.assertIn("no premature accusation", impersonation)
         self.assertIn("avoid clicking", fake_reset)
         self.assertIn("report to security", fake_reset)
         self.assertIn("revoke", exposed_key)

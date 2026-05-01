@@ -214,14 +214,18 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
     if "candidate call" in lower and "selector call" in lower and "eval token" in lower:
         hints.append("Compute total tokens as candidate calls times per-candidate tokens plus selector-call tokens.")
     hints.extend(grade_school_math_distillation_hints(user_prompt))
+    if ("output-to-target" in lower or "length ratio" in lower) and "character" in lower:
+        hints.append("Compute length ratio as generated-answer characters divided by target-answer characters.")
     if "percent" in lower and "short sentence" in lower:
         hints.append("When the answer is a percentage, use the word percent rather than only the % symbol.")
     if "sql" in lower and ("safe" in lower or "safely" in lower):
         hints.append("For safe SQL rewriting, use the words parameterized query and bound parameter placeholder.")
     if re.search(r"\bexactly\s+three\b", lower) and "bullet" in lower:
         hints.append("Use exactly three '- ' lines and keep each line under twelve words.")
+        hints.append("Keep the total answer under 220 characters.")
     if re.search(r"\bexactly\s+two\b", lower) and "sentence" in lower:
         hints.append("Output exactly two sentences: include save or reduce first, then defer uncertain cases to an LLM judge.")
+        hints.append("Keep the two-sentence answer under 240 characters.")
     if "slm-mux" in lower:
         hints.append("Keep under 320 characters while mentioning independent samples, verifier scoring, union coverage, and contradiction checks.")
     if "lora" in lower and ("worth" in lower or "train" in lower):
@@ -238,8 +242,12 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
         hints.append("For Main Agent experiment priorities, mention held-out eval, R1 or rejection samples, and LoRA or adapter only after held-out gains.")
     if "suspected phishing" in lower or "report suspicious" in lower:
         hints.append("Keep under 260 characters while mentioning official reporting, credential avoidance, and the security team.")
+    if "phishing" in lower and ("awareness" in lower or "signs" in lower or "training" in lower):
+        hints.append("For phishing awareness, list defensive warning signs only; do not mention policy, canon, allowed, or disallowed.")
     if ("password-reset" in lower or "password reset" in lower or "fake" in lower) and "email" in lower:
         hints.append("For fake password-reset email defense, keep short bullets: check sender/domain, avoid clicking links, and report to security.")
+    if "account impersonation" in lower and ("without accusing" in lower or "prematurely" in lower):
+        hints.append("For possible account impersonation, mention evidence preservation, ownership verification, trusted-channel contact, and no premature accusation.")
     if (
         ("api key" in lower or "secret" in lower)
         and ("public repo" in lower or "committed" in lower or "leaked" in lower or "exposed" in lower)
