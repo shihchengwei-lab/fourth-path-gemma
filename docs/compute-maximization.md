@@ -24,11 +24,11 @@ and bounded retries. Larger 12B+ models may work in narrow cases, but the
 
 ## Default Recommendation
 
-Use `qwen3-8b-local-max` first:
+Use `qwen3-8b-s2t-lite` first:
 
 ```powershell
 ollama pull qwen3:8b
-python main.py run --profile qwen3-8b-local-max --prompt "Summarize this project." --json
+python main.py run --profile qwen3-8b-s2t-lite --prompt "Summarize this project." --json
 ```
 
 This profile keeps Main Agent and Cold Eyes on `qwen3:8b` to avoid expensive
@@ -38,10 +38,16 @@ load overhead. Cold Eyes still uses deterministic sampling and a short
 `num_predict=64` limit. Cold Eyes also asks Ollama for structured JSON output,
 so the runtime does not rely only on prompt wording for audit shape. The profile
 sets Ollama `keep_alive=30m` so chat and benchmark loops are less likely to pay
-cold-load cost between calls. The profile also appends `/no_think`, because
-Qwen3 thinking mode can spend extra tokens before the final answer. The runtime
-also sends Ollama's `think=false` API parameter for profiles with thinking
-disabled.
+cold-load cost between calls. It appends `/no_think` and sends Ollama's
+`think=false` API parameter for profiles with thinking disabled. Compared with
+`qwen3-8b-local-max`, it adds a local selector for concise and boundary-sensitive
+answers without adding model calls.
+
+Use `qwen3-8b-local-max` as the same-base ablation without the local selector:
+
+```powershell
+python main.py run --profile qwen3-8b-local-max --prompt "Summarize this project." --json
+```
 
 Use `qwen3-8b-deliberate` when the task is worth extra latency:
 
@@ -164,11 +170,27 @@ showed:
   keep-alive change, and about 39.3 seconds with `keep_alive=30m`.
 
 Even with `keep_alive=30m`, the split-audit run still paid multi-second load
-costs when alternating between the 8B main model and 1.7B audit model. That
-keeps `qwen3-8b-local-max` as the recommended default for now.
+costs when alternating between the 8B main model and 1.7B audit model. The
+2026-05-02 full idle run also added `qwen3-8b-s2t-lite` to the standard long
+measurement pass. That run keeps the base model choice on `qwen3:8b`, but moves
+the compute-first recommendation from raw `qwen3-8b-local-max` to
+`qwen3-8b-s2t-lite`.
 
-The 2026-05-01 idle run gives the current Qwen3 comparison point on the
+The 2026-05-02 full idle run gives the current Qwen3 comparison point on the
 40-record Main Agent seed corpus:
+
+- `qwen3-8b-s2t-lite`: 40/40 clean, 0 refusal-like outputs, 0 overlong cases,
+  40 Main Agent calls, about 162.7 seconds.
+- `qwen3-8b-local-max`: 36/40 clean, 0 refusal-like outputs, 3/40 overlong
+  cases, 40 Main Agent calls, about 521.1 seconds in this run.
+- `qwen3-8b-deliberate`: 37/40 clean, 0 refusal-like outputs, 2/40 overlong
+  cases, 80 Main Agent calls, about 333.8 seconds.
+- `qwen3-8b-reasoning`: 36/40 clean, 0 refusal-like outputs, 4/40 overlong
+  cases, 40 Main Agent calls, about 511.4 seconds.
+- `qwen3-8b-search`: 37/40 clean, 0 refusal-like outputs, 2/40 overlong cases,
+  120 Main Agent/selector calls, about 480.8 seconds.
+
+The earlier 2026-05-01 idle run remains useful historical context:
 
 - `qwen3-8b-local-max`: 33/40 clean, 0 refusal-like outputs, 7/40 overlong
   cases, average output/target length ratio 2.631, 40 Main Agent calls, about

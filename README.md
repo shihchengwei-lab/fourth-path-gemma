@@ -84,14 +84,17 @@ For the measured local machine, 16GB RAM and an RTX 4060 Laptop GPU with 8GB
 VRAM, the current compute-first recommendation is:
 
 ```text
-qwen3-8b-local-max
+qwen3-8b-s2t-lite
 ```
 
-That profile uses `qwen3:8b`, matching 8192-token context for Main Agent and
-Cold Eyes to avoid repeated load overhead, short deterministic audit output,
-bounded retries, audit `num_predict=64`, `keep_alive=30m`, Ollama structured
-JSON output for Cold Eyes, and Ollama `think=false` plus `/no_think` for Qwen3
-to avoid spending tokens on hidden thinking when the task does not need it.
+That profile uses the same `qwen3:8b` runtime base as `qwen3-8b-local-max`:
+matching 8192-token context for Main Agent and Cold Eyes to avoid repeated load
+overhead, short deterministic audit output, bounded retries, audit
+`num_predict=64`, `keep_alive=30m`, Ollama structured JSON output for Cold Eyes,
+and Ollama `think=false` plus `/no_think` for Qwen3 to avoid spending tokens on
+hidden thinking when the task does not need it. It adds a local selector that
+removes overlong or audit/canon-meta candidate text when the score improvement
+is decisive, without adding model calls.
 
 For slower quality-seeking runs on the same base model, use:
 
@@ -319,6 +322,12 @@ Run with the recommended local compute profile:
 
 ```powershell
 ollama pull qwen3:8b
+python main.py run --profile qwen3-8b-s2t-lite --prompt "Summarize what this prototype does." --json --timeout 900
+```
+
+Use `qwen3-8b-local-max` as the same-base ablation without the local selector:
+
+```powershell
 python main.py run --profile qwen3-8b-local-max --prompt "Summarize what this prototype does." --json --timeout 900
 ```
 
@@ -387,7 +396,7 @@ matters more than warm-start speed.
 Preload the selected profile before a chat or benchmark:
 
 ```powershell
-python main.py warm --profile qwen3-8b-local-max --json --timeout 900
+python main.py warm --profile qwen3-8b-s2t-lite --json --timeout 900
 ```
 
 Try a split audit model after measuring local model-switch overhead:
@@ -409,7 +418,7 @@ result on the fixed benchmark.
 The Windows chat helper passes through extra arguments, so this also works:
 
 ```powershell
-.\chat.cmd --profile qwen3-8b-local-max
+.\chat.cmd --profile qwen3-8b-s2t-lite
 ```
 
 Run the fixed local benchmark suite for a profile:
