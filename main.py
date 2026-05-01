@@ -2280,6 +2280,24 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help="Require verifier coverage for files whose name contains this text. Defaults to hard and heldout.",
     )
+    main_quality.add_argument(
+        "--max-category-share",
+        type=float,
+        default=0.5,
+        help="Maximum allowed share for one category once a file reaches the balance threshold.",
+    )
+    main_quality.add_argument(
+        "--min-records-for-category-balance",
+        type=int,
+        default=8,
+        help="Minimum records before enforcing the dominant-category share gate.",
+    )
+    main_quality.add_argument(
+        "--min-verifier-types",
+        type=int,
+        default=3,
+        help="Minimum verifier field types required in verifier-required files.",
+    )
     main_quality.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     main_sft = subparsers.add_parser(
@@ -3705,6 +3723,9 @@ def stable_text_hash(text: str) -> str:
 def main_data_quality_check_data(
     paths: list[Path],
     require_verifier_patterns: tuple[str, ...] = ("hard", "heldout"),
+    max_category_share: float = 0.5,
+    min_records_for_category_balance: int = 8,
+    min_verifier_types: int = 3,
 ) -> dict[str, Any]:
     errors: list[str] = []
     files: list[dict[str, Any]] = []
@@ -3715,6 +3736,13 @@ def main_data_quality_check_data(
     total_records = 0
     total_verifier_records = 0
 
+    if not 0 < max_category_share <= 1:
+        errors.append("--max-category-share must be greater than 0 and at most 1")
+    if min_records_for_category_balance < 1:
+        errors.append("--min-records-for-category-balance must be at least 1")
+    if min_verifier_types < 1:
+        errors.append("--min-verifier-types must be at least 1")
+
     for path in paths:
         records, load_errors, total = load_main_agent_records(path)
         errors.extend(f"{path}: {error}" for error in load_errors)
@@ -3722,13 +3750,36 @@ def main_data_quality_check_data(
         verifier_records = sum(bool(record.verifier) for record in records)
         total_verifier_records += verifier_records
         categories = sorted_count_by(record.category for record in records)
+        verifier_type_counts = Counter(
+            verifier_name
+            for record in records
+            for verifier_name, verifier_value in record.verifier.items()
+            if verifier_value
+        )
         requires_verifier = any(pattern in path.name for pattern in require_verifier_patterns)
         all_missing_verifier_ids = [record.record_id for record in records if not record.verifier]
         missing_verifier_ids = all_missing_verifier_ids if requires_verifier else []
+        dominant_category = None
+        dominant_category_share = 0.0
+        category_balance_checked = total >= min_records_for_category_balance and bool(categories)
+
+        if categories:
+            dominant_category, dominant_count = max(categories.items(), key=lambda item: (item[1], item[0]))
+            dominant_category_share = round(safe_ratio(dominant_count, total), 3)
+        if category_balance_checked and dominant_category_share > max_category_share:
+            errors.append(
+                f"{path}: dominant category {dominant_category} covers "
+                f"{dominant_category_share:.3f} of records; limit is {max_category_share:.3f}"
+            )
 
         if requires_verifier and missing_verifier_ids:
             errors.append(
                 f"{path}: verifier required but missing for {len(missing_verifier_ids)} records"
+            )
+        if requires_verifier and verifier_records and len(verifier_type_counts) < min_verifier_types:
+            errors.append(
+                f"{path}: verifier diversity has {len(verifier_type_counts)} type(s); "
+                f"minimum is {min_verifier_types}"
             )
 
         for record in records:
@@ -3759,8 +3810,15 @@ def main_data_quality_check_data(
                 "path": str(path),
                 "total": total,
                 "categories": categories,
+                "dominant_category": dominant_category,
+                "dominant_category_share": dominant_category_share,
+                "category_balance_checked": category_balance_checked,
+                "max_category_share": max_category_share,
                 "verifier_records": verifier_records,
                 "verifier_rate": round(safe_ratio(verifier_records, total), 3),
+                "verifier_type_counts": dict(sorted(verifier_type_counts.items())),
+                "verifier_type_count": len(verifier_type_counts),
+                "min_verifier_types": min_verifier_types,
                 "unverified_records": len(all_missing_verifier_ids),
                 "requires_verifier": requires_verifier,
                 "missing_verifier_ids": missing_verifier_ids,
@@ -3775,6 +3833,9 @@ def main_data_quality_check_data(
         "duplicate_ids": sorted(set(duplicate_ids)),
         "duplicate_prompt_hashes": sorted(set(duplicate_prompt_hashes)),
         "require_verifier_patterns": list(require_verifier_patterns),
+        "max_category_share": max_category_share,
+        "min_records_for_category_balance": min_records_for_category_balance,
+        "min_verifier_types": min_verifier_types,
         "errors": errors,
     }
 
@@ -3790,7 +3851,9 @@ def render_main_data_quality_check(data: dict[str, Any]) -> str:
     for file_data in data["files"]:
         lines.append(
             "- {path}: total={total}, verifier={verifier_records} ({verifier_rate:.3f}), "
-            "unverified={unverified_records}, requires_verifier={requires_verifier}".format(**file_data)
+            "types={verifier_type_count}, dominant={dominant_category} "
+            "({dominant_category_share:.3f}), unverified={unverified_records}, "
+            "requires_verifier={requires_verifier}".format(**file_data)
         )
     if data["duplicate_ids"] or data["duplicate_prompt_hashes"]:
         lines.append("Duplicates detected.")
@@ -3813,7 +3876,13 @@ def main_check_command(args: argparse.Namespace) -> int:
 def main_data_quality_check_command(args: argparse.Namespace) -> int:
     paths = [Path(path) for path in args.input_file] if args.input_file else list(DEFAULT_MAIN_DATA_QUALITY_FILES)
     patterns = tuple(args.require_verifier_pattern or ("hard", "heldout"))
-    data = main_data_quality_check_data(paths, require_verifier_patterns=patterns)
+    data = main_data_quality_check_data(
+        paths,
+        require_verifier_patterns=patterns,
+        max_category_share=args.max_category_share,
+        min_records_for_category_balance=args.min_records_for_category_balance,
+        min_verifier_types=args.min_verifier_types,
+    )
     print_json_or_text(data, args.json, render_main_data_quality_check(data))
     return 1 if data["errors"] else 0
 

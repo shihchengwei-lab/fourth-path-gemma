@@ -72,8 +72,9 @@ python main.py main-data-quality-check --json
 ```
 
 This checks the current seed, hard, and held-out corpora together for duplicate
-ids, duplicate prompt hashes, and verifier coverage on hard/held-out files
-without printing prompt or target text.
+ids, duplicate prompt hashes, dominant-category imbalance, verifier coverage,
+and verifier type diversity on hard/held-out files without printing prompt or
+target text.
 
 ## 2. Distillation Format
 

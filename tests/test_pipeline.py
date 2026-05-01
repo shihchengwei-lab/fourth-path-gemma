@@ -2178,6 +2178,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["total_verifier_records"], 28)
         self.assertEqual(data["duplicate_ids"], [])
         self.assertEqual(data["duplicate_prompt_hashes"], [])
+        by_name = {Path(file_data["path"]).name: file_data for file_data in data["files"]}
+        self.assertEqual(by_name["main_agent_seed.jsonl"]["dominant_category_share"], 0.2)
+        self.assertEqual(by_name["main_agent_hard_seed.jsonl"]["verifier_type_count"], 7)
+        self.assertEqual(by_name["main_agent_heldout_seed.jsonl"]["verifier_type_count"], 7)
 
     def test_main_data_quality_check_flags_overlap_and_missing_verifier(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2213,6 +2217,30 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(any("verifier required" in error for error in data["errors"]))
         self.assertTrue(any("duplicate prompt" in error for error in data["errors"]))
         self.assertEqual(len(data["duplicate_prompt_hashes"]), 1)
+
+    def test_main_data_quality_check_flags_category_and_verifier_monoculture(self):
+        rows = [
+            {
+                "id": f"row-{index}",
+                "category": "hard_math",
+                "prompt": f"Compute {index} + 1 and answer with only the number.",
+                "target_response": str(index + 1),
+                "verifier": {"max_chars": 12},
+            }
+            for index in range(8)
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "main_agent_hard_seed.jsonl"
+            path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+            data = main.main_data_quality_check_data([path])
+
+        file_data = data["files"][0]
+        self.assertEqual(file_data["dominant_category"], "hard_math")
+        self.assertEqual(file_data["dominant_category_share"], 1.0)
+        self.assertEqual(file_data["verifier_type_count"], 1)
+        self.assertTrue(any("dominant category hard_math" in error for error in data["errors"]))
+        self.assertTrue(any("verifier diversity has 1 type" in error for error in data["errors"]))
 
     def test_main_agent_heldout_seed_corpus_is_valid_and_separate(self):
         heldout = main.check_main_agent_corpus(main.PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl")
