@@ -34,6 +34,44 @@ DEFAULT_R2R_SMALL_PARAMS_B = 1.7
 DEFAULT_R2R_LARGE_PARAMS_B = 8.0
 DEFAULT_R2R_ROUTER_PARAMS_B = 0.056
 DEFAULT_R2R_LARGE_TOKEN_RATE = 0.13
+DEFAULT_QWEN3_8B_LAYERS = 36
+DEFAULT_QWEN3_8B_KV_HEADS = 8
+DEFAULT_QWEN3_8B_HEAD_DIM = 128
+DEFAULT_QWEN3_8B_CONTEXT = 8192
+DEFAULT_KV_CACHE_BITS = 16
+DEFAULT_KV_CACHE_QUANT_BITS = 4
+NEXT_TOKEN_FACTORS: tuple[tuple[str, str, str], ...] = (
+    (
+        "prompt_context",
+        "current",
+        "Prompting and task hints shift the conditional distribution, but do not change the base model.",
+    ),
+    (
+        "decoding_parameters",
+        "current",
+        "Temperature, top_p, top_k, min_p, and token budget affect sampling from the distribution.",
+    ),
+    (
+        "qwen3_thinking_prefix",
+        "current_opt_in",
+        "Thinking mode spends extra hidden tokens before the answer; local eval keeps it opt-in because it can overrun simple tasks.",
+    ),
+    (
+        "token_level_logits",
+        "backend_required",
+        "True next-token diagnostics need logits or top-k probabilities, which Ollama chat does not expose.",
+    ),
+    (
+        "token_replacement_routing",
+        "backend_required",
+        "R2R-style next-token routing needs accept/replace control and KV prefill update.",
+    ),
+    (
+        "adapter_training",
+        "offline_weight_change",
+        "LoRA or other adapters can change the learned next-token distribution after held-out proof.",
+    ),
+)
 REFUSAL_OUTPUT = "這個請求無法協助，因為它超出目前系統允許的邊界。"
 LOCAL_OLLAMA_EXE = Path("E:/Ollama/ollama.exe")
 CHAT_HELP = """Commands:
@@ -2471,6 +2509,61 @@ def build_parser() -> argparse.ArgumentParser:
     )
     r2r_estimate.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
+    kv_cache_estimate = subparsers.add_parser(
+        "kv-cache-estimate",
+        help="Estimate Qwen3-style KV cache memory pressure and quantized-KV upside.",
+    )
+    kv_cache_estimate.add_argument(
+        "--layers",
+        type=int,
+        default=DEFAULT_QWEN3_8B_LAYERS,
+        help=f"Transformer layer count. Default: {DEFAULT_QWEN3_8B_LAYERS}.",
+    )
+    kv_cache_estimate.add_argument(
+        "--kv-heads",
+        type=int,
+        default=DEFAULT_QWEN3_8B_KV_HEADS,
+        help=f"Key/value head count. Default: {DEFAULT_QWEN3_8B_KV_HEADS}.",
+    )
+    kv_cache_estimate.add_argument(
+        "--head-dim",
+        type=int,
+        default=DEFAULT_QWEN3_8B_HEAD_DIM,
+        help=f"Attention head dimension. Default: {DEFAULT_QWEN3_8B_HEAD_DIM}.",
+    )
+    kv_cache_estimate.add_argument(
+        "--context-tokens",
+        type=int,
+        default=DEFAULT_QWEN3_8B_CONTEXT,
+        help=f"Prompt plus generated-token context length. Default: {DEFAULT_QWEN3_8B_CONTEXT}.",
+    )
+    kv_cache_estimate.add_argument("--batch-size", type=int, default=1, help="Batch size. Default: 1.")
+    kv_cache_estimate.add_argument(
+        "--kv-bits",
+        type=int,
+        default=DEFAULT_KV_CACHE_BITS,
+        help=f"Base KV cache precision in bits. Default: {DEFAULT_KV_CACHE_BITS}.",
+    )
+    kv_cache_estimate.add_argument(
+        "--quantized-kv-bits",
+        type=int,
+        default=DEFAULT_KV_CACHE_QUANT_BITS,
+        help=f"Optional quantized KV cache precision in bits. Default: {DEFAULT_KV_CACHE_QUANT_BITS}.",
+    )
+    kv_cache_estimate.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
+    next_token_headroom = subparsers.add_parser(
+        "next-token-headroom",
+        help="Audit whether next-token selection can improve under current or token-level backends.",
+    )
+    next_token_headroom.add_argument(
+        "--backend",
+        choices=("ollama-chat", "sglang-r2r"),
+        default="ollama-chat",
+        help="Backend capability model. Default: ollama-chat.",
+    )
+    next_token_headroom.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
     main_eval = subparsers.add_parser(
         "main-eval",
         help="Evaluate Main Agent role behavior against the synthetic corpus.",
@@ -3956,6 +4049,176 @@ def r2r_estimate_command(args: argparse.Namespace) -> int:
         backend=args.backend,
     )
     print_json_or_text(data, args.json, render_r2r_estimate(data))
+    return 0
+
+
+def kv_cache_estimate_data(
+    layers: int,
+    kv_heads: int,
+    head_dim: int,
+    context_tokens: int,
+    batch_size: int,
+    kv_bits: int,
+    quantized_kv_bits: int | None,
+) -> dict[str, Any]:
+    if layers < 1 or kv_heads < 1 or head_dim < 1 or context_tokens < 1 or batch_size < 1:
+        raise SetupError("KV cache dimensions and batch size must be positive.")
+    if kv_bits < 1:
+        raise SetupError("--kv-bits must be positive.")
+    if quantized_kv_bits is not None and quantized_kv_bits < 1:
+        raise SetupError("--quantized-kv-bits must be positive when provided.")
+
+    values_per_token = layers * 2 * kv_heads * head_dim * batch_size
+    bytes_per_token = values_per_token * kv_bits / 8
+    total_bytes = bytes_per_token * context_tokens
+    quantized_bytes_per_token = None
+    quantized_total_bytes = None
+    quantized_total_mib = None
+    estimated_savings_ratio = None
+    if quantized_kv_bits is not None:
+        quantized_bytes_per_token = values_per_token * quantized_kv_bits / 8
+        quantized_total_bytes = quantized_bytes_per_token * context_tokens
+        estimated_savings_ratio = 1 - safe_ratio(quantized_total_bytes, total_bytes)
+        quantized_total_mib = quantized_total_bytes / (1024 * 1024)
+
+    return {
+        "model_assumption": "Qwen3-8B default architecture unless overridden",
+        "layers": layers,
+        "kv_heads": kv_heads,
+        "head_dim": head_dim,
+        "context_tokens": context_tokens,
+        "batch_size": batch_size,
+        "kv_bits": kv_bits,
+        "bytes_per_token": int(bytes_per_token),
+        "total_mib": round(total_bytes / (1024 * 1024), 3),
+        "quantized_kv_bits": quantized_kv_bits,
+        "quantized_bytes_per_token": None if quantized_bytes_per_token is None else int(quantized_bytes_per_token),
+        "quantized_total_mib": None if quantized_total_mib is None else round(quantized_total_mib, 3),
+        "estimated_savings_ratio": None if estimated_savings_ratio is None else round(estimated_savings_ratio, 3),
+        "ollama_chat_exposes_kv_quantization": False,
+        "useful_if": [
+            "long context approaches the local VRAM limit",
+            "the backend can reuse shared prefixes or quantize KV cache",
+            "quality holds on held-out math, code, and instruction-following checks",
+        ],
+    }
+
+
+def render_kv_cache_estimate(data: dict[str, Any]) -> str:
+    lines = [
+        "KV cache estimate",
+        f"Assumption: {data['model_assumption']}",
+        (
+            "Shape: "
+            f"layers={data['layers']}, kv_heads={data['kv_heads']}, "
+            f"head_dim={data['head_dim']}, context={data['context_tokens']}, "
+            f"batch={data['batch_size']}"
+        ),
+        f"Base KV precision: {data['kv_bits']} bits",
+        f"Base bytes/token: {data['bytes_per_token']}",
+        f"Base total: {data['total_mib']:.3f} MiB",
+    ]
+    if data["quantized_kv_bits"] is not None:
+        lines.extend(
+            [
+                f"Quantized KV precision: {data['quantized_kv_bits']} bits",
+                f"Quantized bytes/token: {data['quantized_bytes_per_token']}",
+                f"Quantized total: {data['quantized_total_mib']:.3f} MiB",
+                f"Estimated KV memory reduction: {data['estimated_savings_ratio']:.3f}",
+            ]
+        )
+    lines.append(f"Ollama chat exposes KV quantization controls: {data['ollama_chat_exposes_kv_quantization']}")
+    lines.append("Useful if:")
+    lines.extend(f"- {item}" for item in data["useful_if"])
+    return "\n".join(lines)
+
+
+def kv_cache_estimate_command(args: argparse.Namespace) -> int:
+    data = kv_cache_estimate_data(
+        layers=args.layers,
+        kv_heads=args.kv_heads,
+        head_dim=args.head_dim,
+        context_tokens=args.context_tokens,
+        batch_size=args.batch_size,
+        kv_bits=args.kv_bits,
+        quantized_kv_bits=args.quantized_kv_bits,
+    )
+    print_json_or_text(data, args.json, render_kv_cache_estimate(data))
+    return 0
+
+
+def next_token_headroom_data(backend: str) -> dict[str, Any]:
+    r2r_statuses = r2r_backend_requirement_status(backend)
+    token_level_backend_ready = all(
+        r2r_statuses[name] == "supported_by_backend"
+        for name in ("token_level_logits", "single_token_routing", "large_model_prefill")
+    )
+    current_backend = backend == "ollama-chat"
+    return {
+        "backend": backend,
+        "fixed_qwen3_8b_weights_changeable_by_prompt": False,
+        "current_ollama_chat_can_expose_true_next_token_logits": (
+            current_backend and r2r_statuses["token_level_logits"] == "supported_by_backend"
+        ),
+        "current_ollama_chat_can_replace_individual_tokens": (
+            current_backend and r2r_statuses["single_token_routing"] == "supported_by_backend"
+        ),
+        "token_level_backend_ready": token_level_backend_ready,
+        "continue_recommended": True,
+        "why_continue": [
+            "prompt and decoding controls can still shift outputs without changing weights",
+            "adapter training can change the next-token distribution if held-out gates prove the need",
+            "a logits/token-routing backend would open true next-token selection experiments",
+        ],
+        "factors": [
+            {
+                "name": name,
+                "status": status,
+                "detail": detail,
+            }
+            for name, status, detail in NEXT_TOKEN_FACTORS
+        ],
+        "backend_requirements": [
+            {
+                "name": name,
+                "status": r2r_statuses[name],
+                "detail": detail,
+            }
+            for name, detail in R2R_REQUIREMENTS
+        ],
+    }
+
+
+def render_next_token_headroom(data: dict[str, Any]) -> str:
+    lines = [
+        f"Next-token headroom backend: {data['backend']}",
+        f"Prompt can change fixed Qwen3-8B weights: {data['fixed_qwen3_8b_weights_changeable_by_prompt']}",
+        (
+            "Current Ollama chat exposes true next-token logits: "
+            f"{data['current_ollama_chat_can_expose_true_next_token_logits']}"
+        ),
+        (
+            "Current Ollama chat can replace individual tokens: "
+            f"{data['current_ollama_chat_can_replace_individual_tokens']}"
+        ),
+        f"Selected backend ready for token-level experiments: {data['token_level_backend_ready']}",
+        f"Continue recommended: {data['continue_recommended']}",
+        "",
+        "Factors:",
+    ]
+    lines.extend(f"- {item['name']}: {item['status']} ({item['detail']})" for item in data["factors"])
+    lines.append("")
+    lines.append("Backend requirements:")
+    lines.extend(
+        f"- {item['name']}: {item['status']} ({item['detail']})"
+        for item in data["backend_requirements"]
+    )
+    return "\n".join(lines)
+
+
+def next_token_headroom_command(args: argparse.Namespace) -> int:
+    data = next_token_headroom_data(args.backend)
+    print_json_or_text(data, args.json, render_next_token_headroom(data))
     return 0
 
 
@@ -5721,6 +5984,10 @@ def main(argv: list[str] | None = None) -> int:
             return main_distill_pipeline_command(args)
         if args.command == "r2r-estimate":
             return r2r_estimate_command(args)
+        if args.command == "kv-cache-estimate":
+            return kv_cache_estimate_command(args)
+        if args.command == "next-token-headroom":
+            return next_token_headroom_command(args)
         if args.command == "main-eval":
             return main_eval_command(args)
         if args.command == "architecture-adversarial-eval":

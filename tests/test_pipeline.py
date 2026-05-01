@@ -1786,6 +1786,64 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(sglang["backend_ready_for_true_token_routing"])
         self.assertIn("not_exposed", {item["status"] for item in ollama["requirements"]})
 
+    def test_parser_accepts_kv_cache_estimate_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "kv-cache-estimate",
+                "--context-tokens",
+                "40960",
+                "--quantized-kv-bits",
+                "4",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "kv-cache-estimate")
+        self.assertEqual(args.layers, 36)
+        self.assertEqual(args.kv_heads, 8)
+        self.assertEqual(args.head_dim, 128)
+        self.assertEqual(args.context_tokens, 40960)
+        self.assertEqual(args.quantized_kv_bits, 4)
+        self.assertTrue(args.json)
+
+    def test_kv_cache_estimate_computes_qwen3_8b_memory_pressure(self):
+        data = main.kv_cache_estimate_data(
+            layers=36,
+            kv_heads=8,
+            head_dim=128,
+            context_tokens=8192,
+            batch_size=1,
+            kv_bits=16,
+            quantized_kv_bits=4,
+        )
+
+        self.assertEqual(data["bytes_per_token"], 147456)
+        self.assertEqual(data["total_mib"], 1152.0)
+        self.assertEqual(data["quantized_total_mib"], 288.0)
+        self.assertEqual(data["estimated_savings_ratio"], 0.75)
+        self.assertFalse(data["ollama_chat_exposes_kv_quantization"])
+
+    def test_parser_accepts_next_token_headroom_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(["next-token-headroom", "--backend", "sglang-r2r", "--json"])
+
+        self.assertEqual(args.command, "next-token-headroom")
+        self.assertEqual(args.backend, "sglang-r2r")
+        self.assertTrue(args.json)
+
+    def test_next_token_headroom_distinguishes_ollama_from_token_backend(self):
+        ollama = main.next_token_headroom_data("ollama-chat")
+        sglang = main.next_token_headroom_data("sglang-r2r")
+
+        self.assertFalse(ollama["fixed_qwen3_8b_weights_changeable_by_prompt"])
+        self.assertFalse(ollama["current_ollama_chat_can_expose_true_next_token_logits"])
+        self.assertFalse(ollama["current_ollama_chat_can_replace_individual_tokens"])
+        self.assertFalse(ollama["token_level_backend_ready"])
+        self.assertTrue(ollama["continue_recommended"])
+        self.assertTrue(sglang["token_level_backend_ready"])
+        self.assertIn("adapter_training", {item["name"] for item in ollama["factors"]})
+
     def test_main_agent_seed_corpus_is_valid(self):
         result = main.check_main_agent_corpus(main.PROJECT_ROOT / "data" / "main_agent_seed.jsonl")
 

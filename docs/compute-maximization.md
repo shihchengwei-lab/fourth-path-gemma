@@ -347,7 +347,9 @@ These are useful public directions, not all directly implemented here.
   weight compression.
 - **KV-cache pressure**: long context can become a memory bottleneck. KIVI shows
   that KV-cache quantization can reduce peak memory and improve throughput, but
-  this depends on runtime support.
+  this depends on runtime support. The local `kv-cache-estimate` command now
+  quantifies Qwen3-8B cache pressure from layer/head/context assumptions before
+  any backend claim is made.
 - **Speculative decoding**: llama.cpp supports draft-model and n-gram speculative
   decoding. Ollama's public API exposes `format`, `think`, `keep_alive`, and
   runtime options, but not llama.cpp's speculative controls, so this remains a
@@ -417,6 +419,22 @@ For capability headroom after `qwen3-8b-s2t-lite` saturates the original
 ```powershell
 python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 16 --min-category 2 --json
 python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
+```
+
+For the 2026-05-02 continuation gate, see
+[Qwen3-8B Headroom Audit](headroom-audit-2026-05-02.md). It maps the three
+open questions to concrete evidence: next-token headroom, paper directions,
+and KV-cache memory pressure.
+
+For backend-level cache and routing economics:
+
+```powershell
+python main.py next-token-headroom --json
+python main.py next-token-headroom --backend sglang-r2r --json
+python main.py r2r-estimate --json
+python main.py r2r-estimate --backend sglang-r2r --json
+python main.py kv-cache-estimate --json
+python main.py kv-cache-estimate --context-tokens 40960 --json
 ```
 
 To convert extra inference into verifier-accepted R1-lite training rows:
@@ -647,12 +665,15 @@ listing and unit tests only verify the Python control path.
 - Ollama Llama 3.1 model list: https://ollama.com/library/llama3.1
 - Ollama Gemma3 model list: https://ollama.com/library/gemma3
 - Qwen3-8B model card: https://huggingface.co/Qwen/Qwen3-8B
+- Qwen3 Technical Report: https://arxiv.org/abs/2505.09388
 - Google Gemma 3 announcement: https://blog.google/innovation-and-ai/technology/developers-tools/gemma-3/
 - llama.cpp speculative decoding: https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md
 - Distilling Step-by-Step: https://arxiv.org/abs/2305.02301
 - AWQ: https://arxiv.org/abs/2306.00978
 - KIVI KV-cache quantization: https://arxiv.org/abs/2402.02750
 - QuantSpec self-speculative decoding with quantized KV cache: https://arxiv.org/abs/2502.10424
+- KV Cache Transform Coding: https://arxiv.org/abs/2511.01815
+- XQuant KV-cache quantization: https://arxiv.org/abs/2510.11236
 - Training an LLM-as-a-Judge Model: https://arxiv.org/abs/2502.02988
 - Teach Small Models to Reason by Curriculum Distillation: https://aclanthology.org/2025.emnlp-main.376/
 - Self-Refine: https://arxiv.org/abs/2303.17651

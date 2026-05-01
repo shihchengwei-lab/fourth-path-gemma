@@ -106,6 +106,10 @@ Cold Eyes still receives only the final candidate plus the canon.
 See [Local Compute Maximization Plan](docs/compute-maximization.md) for the
 model-choice rationale, algorithm notes, and measurement loop.
 
+See [Qwen3-8B Headroom Audit](docs/headroom-audit-2026-05-02.md) for the
+current continue/stop gate on next-token headroom, paper directions, and
+KV-cache memory pressure.
+
 See [Cold Eyes Distillation Plan](docs/distillation-plan.md) for the opt-in
 path toward a smaller local audit model.
 
@@ -348,10 +352,9 @@ targets, and model outputs.
 
 Latest release-gate rerun on this hard corpus:
 `runs\release-gate-main-eval-hard-20260502.json` reached 16/16 clean,
-0 refusal-like, 0 overlong, and 16 total Main Agent calls. This saturates the
-current hard set. The same release gate also rechecked the original 40-record
-seed at `runs\release-gate-main-eval-seed-20260502.json` and reached 40/40
-clean. New algorithm work should use a fresh held-out harder corpus.
+0 refusal-like, 0 overlong, and 16 total Main Agent calls. The same release
+gate also rechecked the original 40-record seed at
+`runs\release-gate-main-eval-seed-20260502.json` and reached 40/40 clean.
 
 For public benchmark comparisons instead of repo-owned claims, see
 [Public Benchmark Template](docs/public-benchmark-template.md). It defines a
