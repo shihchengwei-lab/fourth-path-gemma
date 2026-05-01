@@ -43,13 +43,20 @@ Local backend reality from this machine:
 - `E:\Ollama\ollama.exe` is installed and has `qwen3:8b`, `qwen3:1.7b`,
   `llama3.1:8b`, `gemma3:12b`, and `gemma4:e4b`.
 - `llama-server` and `llama-cli` were not found on PATH.
+- `C:\Users\kk789\Desktop\llama-cpp-turboquant` exists on
+  `feature/turboquant-kv-cache` and materially changes the next step. It exposes
+  logits APIs, KV cache type controls, and TurboQuant cache types (`turbo2`,
+  `turbo3`, `turbo4`), but it is not built locally yet.
 - Python imports for `torch`, `transformers`, `sglang`, `llama_cpp`, and `vllm`
   were not installed in the active Python.
 - `nvidia-smi` reported an RTX 4060 Laptop GPU with `8188 MiB` total VRAM at
   inspection time.
+- The existing Ollama `qwen3:8b` blob is a GGUF file, so it can be used as the
+  first llama.cpp test model after the backend is built.
 
-So the immediate blocker for faithful next-token experiments is backend
-availability, not the repo's prompt/profile control code.
+So the immediate blocker for faithful next-token experiments is no longer
+"unknown backend direction." It is build/runtime wiring for a concrete local
+backend candidate. See [llama.cpp TurboQuant Backend Path](llama-cpp-turboquant-backend.md).
 
 ## 2. Are There More Papers Worth Using?
 
@@ -65,7 +72,8 @@ Useful references:
 - R2R: token-level small/large routing targets path-divergent next tokens. This
   directly matches the corrected question, but it needs logits, token
   replacement, router features, and KV cache update.
-- QuantSpec, KVTC, and XQuant: KV-cache compression and self-speculative
+- TurboQuant, KIVI, KVTuner, KVTC, and XQuant: KV-cache compression and
+  self-speculative
   decoding are still active directions for making next-token generation cheaper
   or more scalable under long context.
 - rStar-Math and DeepSeek-R1 remain useful only as verifier-backed search/data
@@ -111,11 +119,11 @@ At least one gate is clearly open:
    by the existing prompt/profile work.
 
 The next concrete work should be backend evaluation, not another prompt-only
-math patch:
+patch:
 
 1. keep default chat on `qwen3-8b-s2t-lite`;
-2. test a logits-capable backend or llama.cpp-style path for token probabilities,
-   prefix cache, KV quantization, and speculative decoding;
+2. build or otherwise obtain `llama-cpp-turboquant` binaries, then test token
+   probabilities, prefix cache, KV quantization, and speculative decoding;
 3. accept it only if held-out repo checks and public smoke keep quality while
    latency or memory improves;
 4. use LoRA/adapter only when held-out failures prove the fixed distribution
@@ -127,6 +135,9 @@ math patch:
 - Qwen3-8B config: https://huggingface.co/Qwen/Qwen3-8B/blob/2069b3fae1114555f3c020c81410e51fa0f656f2/config.json
 - R2R: https://arxiv.org/abs/2505.21600
 - LightReasoner: https://arxiv.org/abs/2510.07962
+- TurboQuant: https://arxiv.org/abs/2504.19874
+- KIVI KV-cache quantization: https://arxiv.org/abs/2402.02750
+- KVTuner: https://arxiv.org/abs/2502.04420
 - QuantSpec: https://arxiv.org/abs/2502.10424
 - KV Cache Transform Coding: https://arxiv.org/abs/2511.01815
 - XQuant: https://arxiv.org/abs/2510.11236

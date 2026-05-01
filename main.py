@@ -40,6 +40,7 @@ DEFAULT_QWEN3_8B_HEAD_DIM = 128
 DEFAULT_QWEN3_8B_CONTEXT = 8192
 DEFAULT_KV_CACHE_BITS = 16
 DEFAULT_KV_CACHE_QUANT_BITS = 4
+TOKEN_BACKEND_CHOICES = ("ollama-chat", "sglang-r2r", "llama-cpp-turboquant")
 NEXT_TOKEN_FACTORS: tuple[tuple[str, str, str], ...] = (
     (
         "prompt_context",
@@ -2503,7 +2504,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     r2r_estimate.add_argument(
         "--backend",
-        choices=("ollama-chat", "sglang-r2r"),
+        choices=TOKEN_BACKEND_CHOICES,
         default="ollama-chat",
         help="Backend capability model. Default: ollama-chat.",
     )
@@ -2558,7 +2559,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     next_token_headroom.add_argument(
         "--backend",
-        choices=("ollama-chat", "sglang-r2r"),
+        choices=TOKEN_BACKEND_CHOICES,
         default="ollama-chat",
         help="Backend capability model. Default: ollama-chat.",
     )
@@ -3968,6 +3969,15 @@ def r2r_backend_requirement_status(backend: str) -> dict[str, str]:
             "single_token_routing": "not_exposed",
             "large_model_prefill": "not_exposed",
             "co_resident_models": "partial_keep_alive_only",
+            "trained_router": "external",
+        }
+    if backend == "llama-cpp-turboquant":
+        return {
+            "token_level_logits": "supported_by_backend",
+            "hidden_states_or_router_features": "partial_logits_only",
+            "single_token_routing": "supported_by_backend",
+            "large_model_prefill": "supported_by_backend",
+            "co_resident_models": "requires_local_memory_measurement",
             "trained_router": "external",
         }
     raise SetupError(f"Unknown R2R backend: {backend}")

@@ -110,6 +110,10 @@ See [Qwen3-8B Headroom Audit](docs/headroom-audit-2026-05-02.md) for the
 current continue/stop gate on next-token headroom, paper directions, and
 KV-cache memory pressure.
 
+See [llama.cpp TurboQuant Backend Path](docs/llama-cpp-turboquant-backend.md)
+for the concrete local backend candidate that can expose logits and TurboQuant
+KV cache controls once built.
+
 See [Cold Eyes Distillation Plan](docs/distillation-plan.md) for the opt-in
 path toward a smaller local audit model.
 

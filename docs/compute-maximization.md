@@ -426,13 +426,26 @@ For the 2026-05-02 continuation gate, see
 open questions to concrete evidence: next-token headroom, paper directions,
 and KV-cache memory pressure.
 
+For the concrete local backend candidate, see
+[llama.cpp TurboQuant Backend Path](llama-cpp-turboquant-backend.md). The
+`llama-cpp-turboquant` fork exposes logits and TurboQuant KV cache controls, but
+it still needs a local build before this repo can use it as a runtime.
+
+Refresh the local readiness check with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check-llama-cpp-turboquant.ps1
+```
+
 For backend-level cache and routing economics:
 
 ```powershell
 python main.py next-token-headroom --json
 python main.py next-token-headroom --backend sglang-r2r --json
+python main.py next-token-headroom --backend llama-cpp-turboquant --json
 python main.py r2r-estimate --json
 python main.py r2r-estimate --backend sglang-r2r --json
+python main.py r2r-estimate --backend llama-cpp-turboquant --json
 python main.py kv-cache-estimate --json
 python main.py kv-cache-estimate --context-tokens 40960 --json
 ```
@@ -670,7 +683,9 @@ listing and unit tests only verify the Python control path.
 - llama.cpp speculative decoding: https://github.com/ggml-org/llama.cpp/blob/master/docs/speculative.md
 - Distilling Step-by-Step: https://arxiv.org/abs/2305.02301
 - AWQ: https://arxiv.org/abs/2306.00978
+- TurboQuant: https://arxiv.org/abs/2504.19874
 - KIVI KV-cache quantization: https://arxiv.org/abs/2402.02750
+- KVTuner: https://arxiv.org/abs/2502.04420
 - QuantSpec self-speculative decoding with quantized KV cache: https://arxiv.org/abs/2502.10424
 - KV Cache Transform Coding: https://arxiv.org/abs/2511.01815
 - XQuant KV-cache quantization: https://arxiv.org/abs/2510.11236

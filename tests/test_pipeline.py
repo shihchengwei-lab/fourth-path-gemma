@@ -1779,12 +1779,22 @@ class PipelineTests(unittest.TestCase):
             output_tokens=1000,
             backend="sglang-r2r",
         )
+        llama_cpp = main.r2r_estimate_data(
+            small_params_b=1.7,
+            large_params_b=8,
+            router_params_b=0.056,
+            large_token_rate=0.13,
+            output_tokens=1000,
+            backend="llama-cpp-turboquant",
+        )
 
         self.assertEqual(ollama["average_activated_params_b"], 2.796)
         self.assertEqual(ollama["parameter_ratio_vs_large"], 0.35)
         self.assertFalse(ollama["backend_ready_for_true_token_routing"])
         self.assertTrue(sglang["backend_ready_for_true_token_routing"])
+        self.assertFalse(llama_cpp["backend_ready_for_true_token_routing"])
         self.assertIn("not_exposed", {item["status"] for item in ollama["requirements"]})
+        self.assertIn("partial_logits_only", {item["status"] for item in llama_cpp["requirements"]})
 
     def test_parser_accepts_kv_cache_estimate_command(self):
         parser = main.build_parser()
@@ -1826,15 +1836,16 @@ class PipelineTests(unittest.TestCase):
 
     def test_parser_accepts_next_token_headroom_command(self):
         parser = main.build_parser()
-        args = parser.parse_args(["next-token-headroom", "--backend", "sglang-r2r", "--json"])
+        args = parser.parse_args(["next-token-headroom", "--backend", "llama-cpp-turboquant", "--json"])
 
         self.assertEqual(args.command, "next-token-headroom")
-        self.assertEqual(args.backend, "sglang-r2r")
+        self.assertEqual(args.backend, "llama-cpp-turboquant")
         self.assertTrue(args.json)
 
     def test_next_token_headroom_distinguishes_ollama_from_token_backend(self):
         ollama = main.next_token_headroom_data("ollama-chat")
         sglang = main.next_token_headroom_data("sglang-r2r")
+        llama_cpp = main.next_token_headroom_data("llama-cpp-turboquant")
 
         self.assertFalse(ollama["fixed_qwen3_8b_weights_changeable_by_prompt"])
         self.assertFalse(ollama["current_ollama_chat_can_expose_true_next_token_logits"])
@@ -1842,6 +1853,10 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(ollama["token_level_backend_ready"])
         self.assertTrue(ollama["continue_recommended"])
         self.assertTrue(sglang["token_level_backend_ready"])
+        self.assertTrue(llama_cpp["token_level_backend_ready"])
+        llama_statuses = {item["name"]: item["status"] for item in llama_cpp["backend_requirements"]}
+        self.assertEqual(llama_statuses["token_level_logits"], "supported_by_backend")
+        self.assertEqual(llama_statuses["trained_router"], "external")
         self.assertIn("adapter_training", {item["name"] for item in ollama["factors"]})
 
     def test_main_agent_seed_corpus_is_valid(self):
