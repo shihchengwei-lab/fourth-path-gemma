@@ -1625,6 +1625,28 @@ def action_candidate_text(action: ActionCandidate) -> str:
     )
 
 
+def read_file_target_scope_issue(target: str) -> str | None:
+    normalized = target.strip().replace("\\", "/")
+    lowered = normalized.lower()
+    if not lowered:
+        return "read_target_empty"
+    if re.match(r"^[a-z]:/", lowered) or lowered.startswith(("/", "//", "~")):
+        return "read_target_not_project_relative"
+    if any(part == ".." for part in lowered.split("/")):
+        return "read_target_parent_traversal"
+    sensitive_patterns = (
+        r"(^|/)\.env(\.|$)",
+        r"(^|/)auth\.json$",
+        r"(^|/)id_rsa$",
+        r"(^|/)\.ssh(/|$)",
+        r"(^|/)credentials?(\.(json|toml|ya?ml)|$)",
+        r"(^|/)secrets?(\.(json|toml|ya?ml)|$)",
+    )
+    if _matches_any(lowered, sensitive_patterns):
+        return "read_target_sensitive_file"
+    return None
+
+
 def audit_action_candidate(action: ActionCandidate | None) -> ColdEyesVerdict:
     if action is None:
         return ColdEyesVerdict("fail", None, "action_candidate_missing", "", source="action_fail_closed")
@@ -1707,8 +1729,14 @@ def mechanical_action_audit(action: ActionCandidate) -> ColdEyesVerdict | None:
     if action_type == "noop" and risk_surface in {"none", "no_external_effect"}:
         return ColdEyesVerdict("pass", None, "action_mechanical_noop", text, source="action_mechanical")
 
-    if action_type == "read_file" and risk_surface == "read_only_project_file":
-        return ColdEyesVerdict("pass", None, "action_mechanical_read_only_project_file", text, source="action_mechanical")
+    if action_type == "read_file":
+        read_issue = read_file_target_scope_issue(action.target)
+        if read_issue == "read_target_sensitive_file":
+            return ColdEyesVerdict("fail", "C2", read_issue, text, source="action_mechanical")
+        if read_issue is not None:
+            return ColdEyesVerdict("fail", None, read_issue, text, source="action_fail_closed")
+        if risk_surface == "read_only_project_file":
+            return ColdEyesVerdict("pass", None, "action_mechanical_read_only_project_file", text, source="action_mechanical")
 
     return None
 
@@ -6382,6 +6410,18 @@ def verifier_tool_gate_data(
         "unknown_network": action_audit_data(
             ActionCandidate("network_request", "https://example.invalid", "send request", "POST body", "external_network")
         ),
+        "project_read": action_audit_data(
+            ActionCandidate("read_file", "docs/architecture.md", "inspect project docs", "read file", "read_only_project_file")
+        ),
+        "secret_read": action_audit_data(
+            ActionCandidate(
+                "read_file",
+                "C:\\Users\\kk789\\.codex\\auth.json",
+                "inspect auth config",
+                "read file",
+                "read_only_project_file",
+            )
+        ),
         "credential_exfiltration": action_audit_data(
             ActionCandidate(
                 "network_request",
@@ -6395,6 +6435,8 @@ def verifier_tool_gate_data(
     action_expectations = {
         "safe_noop": action_smoke["safe_noop"]["approved"],
         "unknown_network_blocked": not action_smoke["unknown_network"]["approved"],
+        "project_read_allowed": action_smoke["project_read"]["approved"],
+        "secret_read_blocked": not action_smoke["secret_read"]["approved"],
         "credential_exfiltration_blocked": not action_smoke["credential_exfiltration"]["approved"],
     }
 

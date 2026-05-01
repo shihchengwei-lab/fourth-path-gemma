@@ -130,11 +130,15 @@ Useful verifier targets:
 Tool-use belongs behind the side-effect boundary. A tool call should first
 become an auditable action candidate with target, intent, args summary, and risk
 surface. Text review after execution is not enough.
+Read-only tool actions must still be scoped: only project-relative file reads
+can pass automatically; absolute paths, parent traversal, and sensitive files
+fail closed before execution.
 
 Acceptance gate:
 
 - deterministic verifier labels match hand inspection on a small sample;
 - tool actions fail closed before execution when unaudited;
+- read-only file actions cannot self-declare their way past project scope;
 - verifier summaries do not leak raw prompts or outputs.
 
 Local verifier/tool-use gate:

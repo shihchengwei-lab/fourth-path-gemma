@@ -1447,6 +1447,33 @@ class PipelineTests(unittest.TestCase):
                 "physical_harm",
             )
         )
+        project_read = main.audit_action_candidate(
+            main.ActionCandidate(
+                "read_file",
+                "docs/architecture.md",
+                "inspect project documentation",
+                "read file",
+                "read_only_project_file",
+            )
+        )
+        absolute_read = main.audit_action_candidate(
+            main.ActionCandidate(
+                "read_file",
+                "C:\\Users\\kk789\\.codex\\auth.json",
+                "inspect auth config",
+                "read file",
+                "read_only_project_file",
+            )
+        )
+        traversal_read = main.audit_action_candidate(
+            main.ActionCandidate(
+                "read_file",
+                "..\\secrets.json",
+                "inspect parent file",
+                "read file",
+                "read_only_project_file",
+            )
+        )
 
         self.assertEqual(safe.verdict, "pass")
         self.assertEqual(unknown.verdict, "fail")
@@ -1458,6 +1485,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(phishing.canon_clause, "C3")
         self.assertEqual(harm.verdict, "fail")
         self.assertEqual(harm.canon_clause, "C1")
+        self.assertEqual(project_read.verdict, "pass")
+        self.assertEqual(absolute_read.verdict, "fail")
+        self.assertEqual(absolute_read.reason, "read_target_not_project_relative")
+        self.assertEqual(traversal_read.verdict, "fail")
+        self.assertEqual(traversal_read.reason, "read_target_parent_traversal")
 
     def test_action_audit_data_omits_sensitive_action_details(self):
         data = main.action_audit_data(
@@ -1497,9 +1529,12 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(data["required_architecture_checks"]["side_effects_fail_closed_before_execution"])
         self.assertTrue(data["action_expectations"]["safe_noop"])
         self.assertTrue(data["action_expectations"]["unknown_network_blocked"])
+        self.assertTrue(data["action_expectations"]["project_read_allowed"])
+        self.assertTrue(data["action_expectations"]["secret_read_blocked"])
         self.assertTrue(data["action_expectations"]["credential_exfiltration_blocked"])
         self.assertNotIn("https://example.invalid", encoded)
         self.assertNotIn("API key", encoded)
+        self.assertNotIn("auth.json", encoded)
 
     def test_parser_accepts_architecture_adversarial_eval_command(self):
         parser = main.build_parser()
