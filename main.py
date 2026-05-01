@@ -4614,29 +4614,60 @@ def inference_compute_gate_command(args: argparse.Namespace) -> int:
     return 1 if data["errors"] else 0
 
 
-def sft_export_format_gate_data(path: Path) -> dict[str, Any]:
-    records, load_errors, total = load_main_agent_records(path)
-    rows = [
-        {
-            "id": record.record_id,
-            "category": record.category,
-            "messages": main_sft_messages(record, include_system=True),
-        }
-        for record in records
-    ]
-    validation_errors = [
-        error
-        for index, row in enumerate(rows, 1)
-        for error in validate_sft_jsonl_row(row, index)
-    ]
-    report = training_data_quality_report(rows) if rows else {}
-    format_errors = training_data_quality_errors(report, require_system=True) if rows else ["training data is empty"]
+def sft_export_format_gate_data(paths: Path | list[Path]) -> dict[str, Any]:
+    source_paths = [paths] if isinstance(paths, Path) else list(paths)
+    all_rows: list[dict[str, Any]] = []
+    file_reports: list[dict[str, Any]] = []
+    load_errors: list[str] = []
+    validation_errors: list[str] = []
+    source_total = 0
+
+    for path in source_paths:
+        records, file_load_errors, total = load_main_agent_records(path)
+        source_total += total
+        load_errors.extend(f"{path}: {error}" for error in file_load_errors)
+        rows = [
+            {
+                "id": record.record_id,
+                "category": record.category,
+                "messages": main_sft_messages(record, include_system=True),
+            }
+            for record in records
+        ]
+        file_validation_errors = [
+            f"{path}: {error}"
+            for index, row in enumerate(rows, 1)
+            for error in validate_sft_jsonl_row(row, index)
+        ]
+        validation_errors.extend(file_validation_errors)
+        file_report = training_data_quality_report(rows) if rows else {}
+        file_reports.append(
+            {
+                "source_path": str(path),
+                "source_total": total,
+                "rows": len(rows),
+                "system_rows": file_report.get("system_rows", 0),
+                "duplicate_ids": file_report.get("duplicate_ids", []),
+                "load_errors": [f"{path}: {error}" for error in file_load_errors],
+                "validation_errors": file_validation_errors,
+            }
+        )
+        all_rows.extend(rows)
+
+    report = training_data_quality_report(all_rows) if all_rows else {}
+    format_errors = (
+        training_data_quality_errors(report, require_system=True)
+        if all_rows
+        else ["training data is empty"]
+    )
     return {
-        "source_path": str(path),
-        "source_total": total,
-        "rows": len(rows),
+        "source_path": str(source_paths[0]) if len(source_paths) == 1 else None,
+        "source_paths": [str(path) for path in source_paths],
+        "source_total": source_total,
+        "rows": len(all_rows),
         "system_rows": report.get("system_rows", 0),
         "duplicate_ids": report.get("duplicate_ids", []),
+        "files": file_reports,
         "load_errors": load_errors,
         "validation_errors": validation_errors,
         "format_errors": format_errors,
@@ -4667,7 +4698,7 @@ def local_release_gate_data(distill_path: Path) -> dict[str, Any]:
         min_category=2,
     )
     data_quality = main_data_quality_check_data(list(DEFAULT_MAIN_DATA_QUALITY_FILES))
-    sft_format = sft_export_format_gate_data(PROJECT_ROOT / "data" / "main_agent_seed.jsonl")
+    sft_format = sft_export_format_gate_data(list(DEFAULT_MAIN_DATA_QUALITY_FILES))
     distill = apply_distill_balance_requirements(
         check_distillation_corpus(distill_path),
         min_pass=19,

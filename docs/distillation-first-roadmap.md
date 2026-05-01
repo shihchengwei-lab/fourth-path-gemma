@@ -99,6 +99,8 @@ Format rules:
 Acceptance gate:
 
 - JSONL validates deterministically;
+- local release SFT format validation covers seed, hard, and held-out corpora
+  together;
 - no row contains private chat logs;
 - no row trains the Main Agent to cite hidden policy or audit internals.
 

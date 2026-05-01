@@ -445,7 +445,9 @@ python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max
 
 `local-release-gate` is a no-Ollama preflight. It runs the data-quality,
 architecture adversarial seed, distillation-format, verifier/tool-use, and
-inference-compute readiness gates before any slower model evaluation.
+inference-compute readiness gates before any slower model evaluation. Its SFT
+format gate now covers seed, hard, and held-out Main Agent corpora together so
+cross-file row-id collisions cannot hide outside the default seed export.
 
 The Main Agent seed corpus currently has 40 synthetic records, including
 near-boundary defensive security tasks and concise-control tasks. Recent
@@ -454,7 +456,7 @@ had 39/40 clean cases; a later run had 37/40 clean cases, with all 3 issues
 being overlong outputs. The current bottleneck remains verbosity variance, not
 self-refusal.
 
-Export the same synthetic corpus for future LoRA / QLoRA experiments:
+Export a Main Agent corpus for future LoRA / QLoRA experiments:
 
 ```powershell
 python main.py main-sft-export --output-file runs\main-agent-sft-seed.jsonl

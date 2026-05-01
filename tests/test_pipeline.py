@@ -2039,7 +2039,8 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["main_corpora"]["seed"]["total"], 40)
         self.assertEqual(data["main_corpora"]["hard"]["total"], 16)
         self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
-        self.assertEqual(data["sft_format"]["rows"], 40)
+        self.assertEqual(data["sft_format"]["rows"], 68)
+        self.assertEqual(len(data["sft_format"]["source_paths"]), 3)
         self.assertEqual(data["sft_format"]["errors"], [])
         self.assertEqual(data["distill"]["total"], 44)
         self.assertNotIn("System secret marker", encoded)
@@ -2349,6 +2350,28 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(exported["messages"][0]["role"], "system")
         self.assertEqual(exported["messages"][1]["content"], "Summarize.")
         self.assertEqual(exported["messages"][2]["content"], "Summary.")
+
+    def test_sft_format_gate_catches_duplicate_ids_across_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "main_agent_seed.jsonl"
+            second = Path(tmp) / "main_agent_hard_seed.jsonl"
+            row = {
+                "id": "dup-row",
+                "category": "format",
+                "prompt": "Return OK.",
+                "target_response": "OK",
+            }
+            first.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            second.write_text(
+                json.dumps({**row, "prompt": "Return YES.", "target_response": "YES"}) + "\n",
+                encoding="utf-8",
+            )
+
+            data = main.sft_export_format_gate_data([first, second])
+
+        self.assertEqual(data["rows"], 2)
+        self.assertEqual(data["duplicate_ids"], ["dup-row"])
+        self.assertTrue(any("duplicate row ids: dup-row" in error for error in data["errors"]))
 
     def test_main_contrast_export_selects_expert_advantage(self):
         records = [
