@@ -408,8 +408,11 @@ python main.py bench --profile qwen3-8b-search --warmup --json --timeout 900
 For Main Agent behavior before any LoRA work:
 
 ```powershell
+python main.py local-release-gate --json
 python main.py main-check --min-total 40 --min-category 1 --json
 python main.py main-data-quality-check --json
+python main.py verifier-tool-gate --json
+python main.py inference-compute-gate --json
 python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max-length-ratio 4
 python main.py main-sft-export --output-file runs\main-agent-sft-seed.jsonl --json
 ```
@@ -490,7 +493,7 @@ python main.py main-distill-pipeline --profile qwen3-8b-s2t-lite --input-file da
 To inspect a generated training JSONL without printing row text:
 
 ```powershell
-python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --json
+python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --json
 ```
 
 For the held-out gate, use records that were not used to tune prompt hints or

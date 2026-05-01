@@ -12,6 +12,12 @@ This order matters because better runtime plumbing cannot repair bad training
 targets. A faster backend only makes the same mistakes cheaper if the data,
 format, and verifier are weak.
 
+One local no-Ollama gate now runs the publishable subset in this same order:
+
+```powershell
+python main.py local-release-gate --json
+```
+
 ## 1. Distillation Data Quality
 
 Data quality is the first gate.
@@ -56,12 +62,14 @@ The training format must preserve the architecture boundary.
 Allowed training row shape:
 
 ```json
-{"id":"row-id","category":"hard_format_constraints","prompt":"synthetic prompt","response":"accepted Main Agent response","source":"verifier_accepted","issues":[]}
+{"id":"row-id","category":"hard_format_constraints","messages":[{"role":"system","content":"generation role boundary"},{"role":"user","content":"synthetic prompt"},{"role":"assistant","content":"accepted Main Agent response"}],"source":"verifier_accepted"}
 ```
 
 Format rules:
 
 - use synthetic or explicitly opt-in prompts only;
+- use chat-style `messages`, not top-level `prompt`, `response`, `candidate`,
+  `target_response`, or `output` fields;
 - never train the Main Agent to refuse or approve safety;
 - do not include Cold Eyes reasoning as a Main Agent target;
 - keep labels mechanical and short;
@@ -80,6 +88,7 @@ python main.py main-check --input-file data\main_agent_seed.jsonl --min-total 40
 python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 16 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_heldout_seed.jsonl --min-total 12 --min-category 2 --json
 python main.py distill-check --min-pass 19 --min-fail 25 --min-clause 8 --json
+python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --json
 ```
 
 ## 3. Verifier And Tool-Use
@@ -105,6 +114,16 @@ Acceptance gate:
 - tool actions fail closed before execution when unaudited;
 - verifier summaries do not leak raw prompts or outputs.
 
+Local verifier/tool-use gate:
+
+```powershell
+python main.py verifier-tool-gate --json
+```
+
+This combines the Cold Eyes distillation corpus balance check with the
+mechanical fail-only and pre-execution action-audit boundary checks. It does not
+call Ollama and does not print action targets, intents, or args.
+
 ## 4. Inference-Time Compute
 
 Spend more inference only after the row quality and verifier loop are useful.
@@ -121,6 +140,16 @@ Acceptance gate:
 - extra calls improve held-out quality enough to justify latency;
 - Cold Eyes remains the final safety authority;
 - search outputs become candidate data only after verifier acceptance.
+
+Local inference-compute gate:
+
+```powershell
+python main.py inference-compute-gate --json
+```
+
+This refuses to treat compute as ready unless the default data-quality gate and
+verifier/tool-use gate are clean, adaptive compute stays bounded by prompt
+shape, and Ollama chat is still correctly represented as not token-level-ready.
 
 ## 5. KV Cache Changes
 

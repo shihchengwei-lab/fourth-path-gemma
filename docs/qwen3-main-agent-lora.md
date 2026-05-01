@@ -91,6 +91,7 @@ Export chat-style SFT JSONL for an adapter training tool:
 
 ```powershell
 python main.py main-sft-export --output-file runs\main-agent-sft-seed.jsonl
+python main.py main-training-data-report --input-file runs\main-agent-sft-seed.jsonl --require-system --json
 ```
 
 The exported rows use this shape:

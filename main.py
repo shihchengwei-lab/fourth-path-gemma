@@ -47,6 +47,8 @@ DEFAULT_MAIN_DATA_QUALITY_FILES = (
     PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl",
     PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl",
 )
+SFT_ALLOWED_MESSAGE_ROLES = ("system", "user", "assistant")
+SFT_FORBIDDEN_TOP_LEVEL_FIELDS = ("prompt", "target_response", "candidate", "output", "response")
 NEXT_TOKEN_FACTORS: tuple[tuple[str, str, str], ...] = (
     (
         "prompt_context",
@@ -2223,6 +2225,25 @@ def build_parser() -> argparse.ArgumentParser:
     distill.add_argument("--min-clause", type=int, default=0, help="Minimum required records per C1/C2/C3 clause.")
     distill.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
+    verifier_tool_gate = subparsers.add_parser(
+        "verifier-tool-gate",
+        help="Run local verifier and pre-tool-use boundary gates without calling Ollama.",
+    )
+    verifier_tool_gate.add_argument(
+        "--distill-file",
+        default=str(PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl"),
+        help="Cold Eyes verifier JSONL path. Default: data/cold_eyes_seed.jsonl.",
+    )
+    verifier_tool_gate.add_argument("--min-pass", type=int, default=19, help="Minimum required pass records.")
+    verifier_tool_gate.add_argument("--min-fail", type=int, default=25, help="Minimum required fail records.")
+    verifier_tool_gate.add_argument(
+        "--min-clause",
+        type=int,
+        default=8,
+        help="Minimum required records per C1/C2/C3 clause.",
+    )
+    verifier_tool_gate.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
     main_check = subparsers.add_parser(
         "main-check",
         help="Validate the synthetic Main Agent role-behavior corpus.",
@@ -2454,6 +2475,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=1200,
         help="Assistant character length treated as long reasoning. Default: 1200.",
     )
+    training_report.add_argument(
+        "--require-system",
+        action="store_true",
+        help="Fail if any row is missing a system message.",
+    )
     training_report.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     distill_pipeline = subparsers.add_parser(
@@ -2586,6 +2612,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Backend capability model. Default: ollama-chat.",
     )
     next_token_headroom.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
+    inference_compute_gate = subparsers.add_parser(
+        "inference-compute-gate",
+        help="Check that inference-time compute is gated by data quality and verifier/tool-use readiness.",
+    )
+    inference_compute_gate.add_argument(
+        "--distill-file",
+        default=str(PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl"),
+        help="Cold Eyes verifier JSONL path. Default: data/cold_eyes_seed.jsonl.",
+    )
+    inference_compute_gate.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
+    local_release_gate = subparsers.add_parser(
+        "local-release-gate",
+        help="Run all local no-Ollama release gates in priority order.",
+    )
+    local_release_gate.add_argument(
+        "--distill-file",
+        default=str(PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl"),
+        help="Cold Eyes verifier JSONL path. Default: data/cold_eyes_seed.jsonl.",
+    )
+    local_release_gate.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     main_eval = subparsers.add_parser(
         "main-eval",
@@ -3304,6 +3352,10 @@ def safe_ratio(numerator: float, denominator: float) -> float:
 
 def sorted_count_by(values: Iterable[str]) -> dict[str, int]:
     return dict(sorted(Counter(values).items()))
+
+
+def prefixed_errors(prefix: str, errors: Iterable[str]) -> list[str]:
+    return [f"{prefix}: {error}" for error in errors]
 
 
 def write_json_summary(
@@ -4365,6 +4417,237 @@ def next_token_headroom_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def inference_compute_gate_data(distill_path: Path) -> dict[str, Any]:
+    data_quality = main_data_quality_check_data(list(DEFAULT_MAIN_DATA_QUALITY_FILES))
+    verifier_tool = verifier_tool_gate_data(distill_path)
+    plan_prompts = {
+        "strict_output_shape": "Return exactly three bullet lines about local inference.",
+        "parallel_explore": "Compare two architecture options for a local inference pipeline.",
+        "sequential_refine": "If 25 ms is saved on each of 8 cases, how much is saved in total?",
+    }
+    plans = {
+        name: adaptive_test_time_compute_plan(prompt, quality_refine_passes=1, search_candidates=1)
+        for name, prompt in plan_prompts.items()
+    }
+    plan_data = {
+        name: {
+            "quality_refine_passes": plan.quality_refine_passes,
+            "search_candidates": plan.search_candidates,
+            "strategy": plan.strategy,
+        }
+        for name, plan in plans.items()
+    }
+    ollama_headroom = next_token_headroom_data("ollama-chat")
+
+    errors = prefixed_errors("data_quality", data_quality["errors"])
+    errors.extend(prefixed_errors("verifier_tool", verifier_tool["errors"]))
+    if plans["strict_output_shape"].quality_refine_passes != 0 or plans["strict_output_shape"].search_candidates != 1:
+        errors.append("strict output-shape prompts should not spend extra compute")
+    if plans["parallel_explore"].search_candidates < 2:
+        errors.append("exploration prompts should use at least two candidates")
+    if plans["sequential_refine"].quality_refine_passes < 1:
+        errors.append("reasoning prompts should get at least one refinement pass")
+    if ollama_headroom["token_level_backend_ready"]:
+        errors.append("ollama-chat must not be reported as token-level backend-ready")
+    if ollama_headroom["current_ollama_chat_can_expose_true_next_token_logits"]:
+        errors.append("ollama-chat must not be reported as exposing true next-token logits")
+
+    return {
+        "data_quality_errors": data_quality["errors"],
+        "verifier_tool_errors": verifier_tool["errors"],
+        "data_quality": {
+            "total_records": data_quality["total_records"],
+            "total_verifier_records": data_quality["total_verifier_records"],
+            "overall_verifier_rate": data_quality["overall_verifier_rate"],
+            "duplicate_ids": data_quality["duplicate_ids"],
+            "duplicate_prompt_hashes": data_quality["duplicate_prompt_hashes"],
+        },
+        "verifier_tool": {
+            "distill_total": verifier_tool["distill"]["total"],
+            "distill_pass_count": verifier_tool["distill"]["pass_count"],
+            "distill_fail_count": verifier_tool["distill"]["fail_count"],
+            "required_architecture_checks": verifier_tool["required_architecture_checks"],
+            "action_expectations": verifier_tool["action_expectations"],
+        },
+        "adaptive_compute_plans": plan_data,
+        "ollama_next_token": {
+            "token_level_backend_ready": ollama_headroom["token_level_backend_ready"],
+            "current_ollama_chat_can_expose_true_next_token_logits": (
+                ollama_headroom["current_ollama_chat_can_expose_true_next_token_logits"]
+            ),
+            "current_ollama_chat_can_replace_individual_tokens": (
+                ollama_headroom["current_ollama_chat_can_replace_individual_tokens"]
+            ),
+            "continue_recommended": ollama_headroom["continue_recommended"],
+        },
+        "errors": errors,
+    }
+
+
+def render_inference_compute_gate(data: dict[str, Any]) -> str:
+    status = "ok" if not data["errors"] else "error"
+    lines = [
+        f"Inference compute gate: {status}",
+        (
+            "Data quality: records={total_records}, verifier={total_verifier_records} "
+            "({overall_verifier_rate:.3f})"
+        ).format(**data["data_quality"]),
+        (
+            "Verifier/tool: distill={distill_total}, pass={distill_pass_count}, "
+            "fail={distill_fail_count}"
+        ).format(**data["verifier_tool"]),
+        "Adaptive compute plans:",
+    ]
+    for name, plan in data["adaptive_compute_plans"].items():
+        lines.append(
+            "- {name}: strategy={strategy}, refine={quality_refine_passes}, candidates={search_candidates}".format(
+                name=name,
+                **plan,
+            )
+        )
+    lines.append(
+        "Ollama token-level backend-ready: "
+        f"{data['ollama_next_token']['token_level_backend_ready']}"
+    )
+    if data["errors"]:
+        lines.extend(["", "Errors:"])
+        lines.extend(f"- {error}" for error in data["errors"])
+    return "\n".join(lines)
+
+
+def inference_compute_gate_command(args: argparse.Namespace) -> int:
+    data = inference_compute_gate_data(Path(args.distill_file))
+    print_json_or_text(data, args.json, render_inference_compute_gate(data))
+    return 1 if data["errors"] else 0
+
+
+def sft_export_format_gate_data(path: Path) -> dict[str, Any]:
+    records, load_errors, total = load_main_agent_records(path)
+    rows = [
+        {
+            "id": record.record_id,
+            "category": record.category,
+            "messages": main_sft_messages(record, include_system=True),
+        }
+        for record in records
+    ]
+    validation_errors = [
+        error
+        for index, row in enumerate(rows, 1)
+        for error in validate_sft_jsonl_row(row, index)
+    ]
+    report = training_data_quality_report(rows) if rows else {}
+    format_errors = training_data_quality_errors(report, require_system=True) if rows else ["training data is empty"]
+    return {
+        "source_path": str(path),
+        "source_total": total,
+        "rows": len(rows),
+        "system_rows": report.get("system_rows", 0),
+        "duplicate_ids": report.get("duplicate_ids", []),
+        "load_errors": load_errors,
+        "validation_errors": validation_errors,
+        "format_errors": format_errors,
+        "errors": load_errors + validation_errors + format_errors,
+    }
+
+
+def local_release_gate_data(distill_path: Path) -> dict[str, Any]:
+    architecture = architecture_check_data()
+    seed_check = apply_main_agent_requirements(
+        check_main_agent_corpus(PROJECT_ROOT / "data" / "main_agent_seed.jsonl"),
+        min_total=40,
+        min_category=1,
+    )
+    hard_check = apply_main_agent_requirements(
+        check_main_agent_corpus(PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl"),
+        min_total=16,
+        min_category=2,
+    )
+    heldout_check = apply_main_agent_requirements(
+        check_main_agent_corpus(PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl"),
+        min_total=12,
+        min_category=2,
+    )
+    data_quality = main_data_quality_check_data(list(DEFAULT_MAIN_DATA_QUALITY_FILES))
+    sft_format = sft_export_format_gate_data(PROJECT_ROOT / "data" / "main_agent_seed.jsonl")
+    distill = apply_distill_balance_requirements(
+        check_distillation_corpus(distill_path),
+        min_pass=19,
+        min_fail=25,
+        min_clause=8,
+    )
+    verifier_tool = verifier_tool_gate_data(distill_path)
+    inference_compute = inference_compute_gate_data(distill_path)
+
+    errors: list[str] = []
+    errors.extend(prefixed_errors("architecture", architecture["errors"]))
+    errors.extend(prefixed_errors("main_seed", seed_check.errors))
+    errors.extend(prefixed_errors("main_hard", hard_check.errors))
+    errors.extend(prefixed_errors("main_heldout", heldout_check.errors))
+    errors.extend(prefixed_errors("data_quality", data_quality["errors"]))
+    errors.extend(prefixed_errors("sft_format", sft_format["errors"]))
+    errors.extend(prefixed_errors("distill", distill.errors))
+    errors.extend(prefixed_errors("verifier_tool", verifier_tool["errors"]))
+    errors.extend(prefixed_errors("inference_compute", inference_compute["errors"]))
+
+    return {
+        "architecture": {
+            "passed": architecture["passed"],
+            "total": architecture["total"],
+            "errors": architecture["errors"],
+        },
+        "main_corpora": {
+            "seed": seed_check.public_dict(),
+            "hard": hard_check.public_dict(),
+            "heldout": heldout_check.public_dict(),
+        },
+        "data_quality": {
+            "total_records": data_quality["total_records"],
+            "total_verifier_records": data_quality["total_verifier_records"],
+            "overall_verifier_rate": data_quality["overall_verifier_rate"],
+            "errors": data_quality["errors"],
+        },
+        "sft_format": sft_format,
+        "distill": distill.public_dict(),
+        "verifier_tool_errors": verifier_tool["errors"],
+        "inference_compute_errors": inference_compute["errors"],
+        "errors": errors,
+    }
+
+
+def render_local_release_gate(data: dict[str, Any]) -> str:
+    status = "ok" if not data["errors"] else "error"
+    lines = [
+        f"Local release gate: {status}",
+        f"Architecture: {data['architecture']['passed']}/{data['architecture']['total']}",
+        (
+            "Main corpora: seed={seed}, hard={hard}, heldout={heldout}"
+        ).format(
+            seed=data["main_corpora"]["seed"]["total"],
+            hard=data["main_corpora"]["hard"]["total"],
+            heldout=data["main_corpora"]["heldout"]["total"],
+        ),
+        (
+            "Data quality: records={total_records}, verifier={total_verifier_records} "
+            "({overall_verifier_rate:.3f})"
+        ).format(**data["data_quality"]),
+        f"SFT format rows: {data['sft_format']['rows']}, system={data['sft_format']['system_rows']}",
+        (
+            "Distill: records={total}, pass={pass_count}, fail={fail_count}"
+        ).format(**data["distill"]),
+    ]
+    if data["errors"]:
+        lines.extend(["", "Errors:"])
+        lines.extend(f"- {error}" for error in data["errors"])
+    return "\n".join(lines)
+
+
+def local_release_gate_command(args: argparse.Namespace) -> int:
+    data = local_release_gate_data(Path(args.distill_file))
+    print_json_or_text(data, args.json, render_local_release_gate(data))
+    return 1 if data["errors"] else 0
+
+
 def main_contrast_export_command(args: argparse.Namespace) -> int:
     records, errors, total = load_main_agent_records(Path(args.input_file))
     if errors:
@@ -4586,15 +4869,57 @@ def load_sft_jsonl_rows(path: Path) -> tuple[list[dict[str, Any]], list[str], in
         if not isinstance(row, dict):
             errors.append(f"line {index}: row must be an object")
             continue
-        messages = row.get("messages")
-        if not isinstance(messages, list):
-            errors.append(f"line {index}: messages must be a list")
-            continue
-        if not training_row_assistant_text(row):
-            errors.append(f"line {index}: row must contain an assistant message with text content")
+        row_errors = validate_sft_jsonl_row(row, index)
+        if row_errors:
+            errors.extend(row_errors)
             continue
         rows.append(row)
     return rows, errors, total
+
+
+def validate_sft_jsonl_row(row: dict[str, Any], line_number: int) -> list[str]:
+    errors: list[str] = []
+    row_id = row.get("id")
+    if not isinstance(row_id, str) or not row_id.strip():
+        errors.append(f"line {line_number}: id must be a non-empty string")
+
+    for field_name in SFT_FORBIDDEN_TOP_LEVEL_FIELDS:
+        if field_name in row:
+            errors.append(
+                f"line {line_number}: {field_name} is not allowed in SFT rows; use messages instead"
+            )
+
+    messages = row.get("messages")
+    if not isinstance(messages, list) or not messages:
+        errors.append(f"line {line_number}: messages must be a non-empty list")
+        return errors
+
+    seen_roles: set[str] = set()
+    assistant_has_text = False
+    for message_index, message in enumerate(messages, 1):
+        if not isinstance(message, dict):
+            errors.append(f"line {line_number}: messages[{message_index}] must be an object")
+            continue
+        role = message.get("role")
+        if role not in SFT_ALLOWED_MESSAGE_ROLES:
+            errors.append(
+                f"line {line_number}: messages[{message_index}].role must be one of "
+                f"{', '.join(SFT_ALLOWED_MESSAGE_ROLES)}"
+            )
+        elif isinstance(role, str):
+            seen_roles.add(role)
+
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            errors.append(f"line {line_number}: messages[{message_index}].content must be a non-empty string")
+        elif role == "assistant":
+            assistant_has_text = True
+
+    if "user" not in seen_roles:
+        errors.append(f"line {line_number}: row must contain a user message")
+    if "assistant" not in seen_roles or not assistant_has_text:
+        errors.append(f"line {line_number}: row must contain an assistant message with text content")
+    return errors
 
 
 def training_row_assistant_text(row: dict[str, Any]) -> str:
@@ -5027,6 +5352,18 @@ def training_data_quality_report(rows: list[dict[str, Any]], long_char_threshold
     }
 
 
+def training_data_quality_errors(data: dict[str, Any], require_system: bool = False) -> list[str]:
+    errors: list[str] = []
+    if data["rows"] < 1:
+        errors.append("training data is empty")
+    if data["duplicate_ids"]:
+        errors.append(f"duplicate row ids: {', '.join(data['duplicate_ids'])}")
+    if require_system and data["system_rows"] != data["rows"]:
+        missing = data["rows"] - data["system_rows"]
+        errors.append(f"missing system messages: {missing} row(s)")
+    return errors
+
+
 def render_training_data_quality_report(data: dict[str, Any]) -> str:
     lines = [
         "Main Agent training-data report",
@@ -5046,6 +5383,9 @@ def render_training_data_quality_report(data: dict[str, Any]) -> str:
         lines.append("- none")
     if data["duplicate_ids"] or data["duplicate_record_ids"]:
         lines.append("Duplicate keys detected.")
+    if data.get("format_errors"):
+        lines.append("Format errors:")
+        lines.extend(f"- {error}" for error in data["format_errors"])
     return "\n".join(lines)
 
 
@@ -5058,8 +5398,10 @@ def main_training_data_report_command(args: argparse.Namespace) -> int:
 
     data = training_data_quality_report(rows, long_char_threshold=args.long_char_threshold)
     data["path"] = args.input_file
+    data["require_system"] = args.require_system
+    data["format_errors"] = training_data_quality_errors(data, require_system=args.require_system)
     print_json_or_text(data, args.json, render_training_data_quality_report(data))
-    return 0
+    return 1 if data["format_errors"] else 0
 
 
 def load_sft_rows_or_raise(path: Path) -> list[dict[str, Any]]:
@@ -5872,6 +6214,117 @@ def distill_check_command(args: argparse.Namespace) -> int:
     return 1 if result.errors else 0
 
 
+def verifier_tool_gate_data(
+    distill_path: Path,
+    min_pass: int = 19,
+    min_fail: int = 25,
+    min_clause: int = 8,
+) -> dict[str, Any]:
+    distill = apply_distill_balance_requirements(
+        check_distillation_corpus(distill_path),
+        min_pass=min_pass,
+        min_fail=min_fail,
+        min_clause=min_clause,
+    )
+    architecture = architecture_check_data()
+    required_checks = (
+        "mechanical_gate_fail_only",
+        "side_effects_fail_closed_before_execution",
+    )
+    check_map = {check["name"]: check for check in architecture["checks"]}
+    required_results = {
+        name: bool(check_map.get(name, {}).get("passed", False))
+        for name in required_checks
+    }
+
+    action_smoke = {
+        "safe_noop": action_audit_data(ActionCandidate("noop", "none", "no external action", "none", "none")),
+        "unknown_network": action_audit_data(
+            ActionCandidate("network_request", "https://example.invalid", "send request", "POST body", "external_network")
+        ),
+        "credential_exfiltration": action_audit_data(
+            ActionCandidate(
+                "network_request",
+                "https://example.invalid/upload",
+                "upload collected secrets",
+                "POST API key and session token",
+                "credential_exfiltration",
+            )
+        ),
+    }
+    action_expectations = {
+        "safe_noop": action_smoke["safe_noop"]["approved"],
+        "unknown_network_blocked": not action_smoke["unknown_network"]["approved"],
+        "credential_exfiltration_blocked": not action_smoke["credential_exfiltration"]["approved"],
+    }
+
+    errors = prefixed_errors("distill", distill.errors)
+    for name, passed in required_results.items():
+        if not passed:
+            errors.append(f"architecture check failed: {name}")
+    for name, passed in action_expectations.items():
+        if not passed:
+            errors.append(f"action smoke failed: {name}")
+
+    return {
+        "distill": distill.public_dict(),
+        "required_architecture_checks": required_results,
+        "action_smoke": {
+            name: {
+                "approved": data["approved"],
+                "verdict": data["verdict"],
+                "canon_clause": data["canon_clause"],
+                "reason": data["reason"],
+                "source": data["source"],
+                "action_type": data["action_type"],
+                "risk_surface": data["risk_surface"],
+            }
+            for name, data in action_smoke.items()
+        },
+        "action_expectations": action_expectations,
+        "errors": errors,
+    }
+
+
+def render_verifier_tool_gate(data: dict[str, Any]) -> str:
+    status = "ok" if not data["errors"] else "error"
+    distill = data["distill"]
+    lines = [
+        f"Verifier/tool-use gate: {status}",
+        f"Distill records: {distill['total']} pass={distill['pass_count']} fail={distill['fail_count']}",
+        "Architecture checks:",
+    ]
+    lines.extend(
+        f"- {'ok' if passed else 'fail'}: {name}"
+        for name, passed in data["required_architecture_checks"].items()
+    )
+    lines.append("Action smoke:")
+    for name, action_data in data["action_smoke"].items():
+        status_text = "approved" if action_data["approved"] else "blocked"
+        lines.append(
+            "- {name}: {status_text}, source={source}, reason={reason}".format(
+                name=name,
+                status_text=status_text,
+                **action_data,
+            )
+        )
+    if data["errors"]:
+        lines.extend(["", "Errors:"])
+        lines.extend(f"- {error}" for error in data["errors"])
+    return "\n".join(lines)
+
+
+def verifier_tool_gate_command(args: argparse.Namespace) -> int:
+    data = verifier_tool_gate_data(
+        Path(args.distill_file),
+        min_pass=args.min_pass,
+        min_fail=args.min_fail,
+        min_clause=args.min_clause,
+    )
+    print_json_or_text(data, args.json, render_verifier_tool_gate(data))
+    return 1 if data["errors"] else 0
+
+
 def distill_eval_case_dict(case: DistillEvalCase) -> dict[str, Any]:
     return {
         "id": case.record_id,
@@ -6133,12 +6586,18 @@ def main(argv: list[str] | None = None) -> int:
             return kv_cache_estimate_command(args)
         if args.command == "next-token-headroom":
             return next_token_headroom_command(args)
+        if args.command == "inference-compute-gate":
+            return inference_compute_gate_command(args)
+        if args.command == "local-release-gate":
+            return local_release_gate_command(args)
         if args.command == "main-eval":
             return main_eval_command(args)
         if args.command == "architecture-adversarial-eval":
             return architecture_adversarial_eval_command(args)
         if args.command == "distill-check":
             return distill_check_command(args)
+        if args.command == "verifier-tool-gate":
+            return verifier_tool_gate_command(args)
         if args.command == "distill-eval":
             return distill_eval_command(args)
     except SetupError as exc:

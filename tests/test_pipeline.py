@@ -1,6 +1,8 @@
 import json
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import main
@@ -1421,6 +1423,26 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("opaque marker", encoded)
         self.assertNotIn("https://opaque.invalid", encoded)
 
+    def test_verifier_tool_gate_combines_distill_and_action_boundaries(self):
+        data = main.verifier_tool_gate_data(
+            main.PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl",
+            min_pass=19,
+            min_fail=25,
+            min_clause=8,
+        )
+        encoded = json.dumps(data, ensure_ascii=False)
+
+        self.assertEqual(data["errors"], [])
+        self.assertEqual(data["distill"]["pass_count"], 19)
+        self.assertEqual(data["distill"]["fail_count"], 25)
+        self.assertTrue(data["required_architecture_checks"]["mechanical_gate_fail_only"])
+        self.assertTrue(data["required_architecture_checks"]["side_effects_fail_closed_before_execution"])
+        self.assertTrue(data["action_expectations"]["safe_noop"])
+        self.assertTrue(data["action_expectations"]["unknown_network_blocked"])
+        self.assertTrue(data["action_expectations"]["credential_exfiltration_blocked"])
+        self.assertNotIn("https://example.invalid", encoded)
+        self.assertNotIn("API key", encoded)
+
     def test_parser_accepts_architecture_adversarial_eval_command(self):
         parser = main.build_parser()
         args = parser.parse_args(
@@ -1537,6 +1559,30 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.min_pass, 10)
         self.assertEqual(args.min_fail, 10)
         self.assertEqual(args.min_clause, 5)
+
+    def test_parser_accepts_verifier_tool_gate_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "verifier-tool-gate",
+                "--distill-file",
+                "cold.jsonl",
+                "--min-pass",
+                "10",
+                "--min-fail",
+                "11",
+                "--min-clause",
+                "3",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "verifier-tool-gate")
+        self.assertEqual(args.distill_file, "cold.jsonl")
+        self.assertEqual(args.min_pass, 10)
+        self.assertEqual(args.min_fail, 11)
+        self.assertEqual(args.min_clause, 3)
+        self.assertTrue(args.json)
 
     def test_parser_accepts_main_check_command(self):
         parser = main.build_parser()
@@ -1716,6 +1762,7 @@ class PipelineTests(unittest.TestCase):
                 "mix.jsonl",
                 "--long-char-threshold",
                 "500",
+                "--require-system",
                 "--json",
             ]
         )
@@ -1723,6 +1770,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.command, "main-training-data-report")
         self.assertEqual(args.input_file, "mix.jsonl")
         self.assertEqual(args.long_char_threshold, 500)
+        self.assertTrue(args.require_system)
         self.assertTrue(args.json)
 
     def test_parser_accepts_main_distill_pipeline_command(self):
@@ -1862,6 +1910,24 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.backend, "llama-cpp-turboquant")
         self.assertTrue(args.json)
 
+    def test_parser_accepts_inference_compute_gate_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            ["inference-compute-gate", "--distill-file", "cold.jsonl", "--json"]
+        )
+
+        self.assertEqual(args.command, "inference-compute-gate")
+        self.assertEqual(args.distill_file, "cold.jsonl")
+        self.assertTrue(args.json)
+
+    def test_parser_accepts_local_release_gate_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(["local-release-gate", "--distill-file", "cold.jsonl", "--json"])
+
+        self.assertEqual(args.command, "local-release-gate")
+        self.assertEqual(args.distill_file, "cold.jsonl")
+        self.assertTrue(args.json)
+
     def test_next_token_headroom_distinguishes_ollama_from_token_backend(self):
         ollama = main.next_token_headroom_data("ollama-chat")
         sglang = main.next_token_headroom_data("sglang-r2r")
@@ -1878,6 +1944,38 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(llama_statuses["token_level_logits"], "reference_implementation_only")
         self.assertEqual(llama_statuses["trained_router"], "external")
         self.assertIn("adapter_training", {item["name"] for item in ollama["factors"]})
+
+    def test_inference_compute_gate_requires_prior_gates_and_bounded_compute(self):
+        data = main.inference_compute_gate_data(main.PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl")
+
+        self.assertEqual(data["errors"], [])
+        self.assertEqual(data["data_quality"]["total_records"], 68)
+        self.assertEqual(data["verifier_tool"]["distill_total"], 44)
+        self.assertEqual(
+            data["adaptive_compute_plans"]["strict_output_shape"]["strategy"],
+            "strict_output_shape",
+        )
+        self.assertEqual(data["adaptive_compute_plans"]["strict_output_shape"]["search_candidates"], 1)
+        self.assertEqual(data["adaptive_compute_plans"]["parallel_explore"]["search_candidates"], 2)
+        self.assertGreaterEqual(data["adaptive_compute_plans"]["sequential_refine"]["quality_refine_passes"], 1)
+        self.assertFalse(data["ollama_next_token"]["token_level_backend_ready"])
+        self.assertFalse(data["ollama_next_token"]["current_ollama_chat_can_expose_true_next_token_logits"])
+
+    def test_local_release_gate_runs_no_ollama_priority_gates_without_private_text(self):
+        data = main.local_release_gate_data(main.PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl")
+        encoded = json.dumps(data, ensure_ascii=False)
+
+        self.assertEqual(data["errors"], [])
+        self.assertEqual(data["architecture"]["passed"], data["architecture"]["total"])
+        self.assertEqual(data["main_corpora"]["seed"]["total"], 40)
+        self.assertEqual(data["main_corpora"]["hard"]["total"], 16)
+        self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
+        self.assertEqual(data["sft_format"]["rows"], 40)
+        self.assertEqual(data["sft_format"]["errors"], [])
+        self.assertEqual(data["distill"]["total"], 44)
+        self.assertNotIn("System secret marker", encoded)
+        self.assertNotIn("Prompt secret marker", encoded)
+        self.assertNotIn("Assistant secret marker", encoded)
 
     def test_main_agent_seed_corpus_is_valid(self):
         result = main.check_main_agent_corpus(main.PROJECT_ROOT / "data" / "main_agent_seed.jsonl")
@@ -2290,6 +2388,79 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("System secret marker", encoded)
         self.assertNotIn("Prompt secret marker", encoded)
         self.assertNotIn("Assistant secret marker", encoded)
+
+    def test_load_sft_jsonl_rows_rejects_ambiguous_and_bad_message_shape(self):
+        lines = [
+            {
+                "id": "bad-1",
+                "prompt": "Raw prompt should not be a top-level SFT field.",
+                "messages": [
+                    {"role": "user", "content": "Question."},
+                    {"role": "assistant", "content": "Answer."},
+                ],
+            },
+            {
+                "id": "bad-2",
+                "messages": [
+                    {"role": "developer", "content": "Wrong role."},
+                    {"role": "assistant", "content": ""},
+                ],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bad-sft.jsonl"
+            path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+            rows, errors, total = main.load_sft_jsonl_rows(path)
+
+        joined = "\n".join(errors)
+        self.assertEqual(total, 2)
+        self.assertEqual(rows, [])
+        self.assertIn("line 1: prompt is not allowed in SFT rows; use messages instead", joined)
+        self.assertIn("line 2: messages[1].role must be one of system, user, assistant", joined)
+        self.assertIn("line 2: messages[2].content must be a non-empty string", joined)
+        self.assertIn("line 2: row must contain a user message", joined)
+
+    def test_main_training_data_report_fails_duplicate_ids_and_missing_system_when_required(self):
+        lines = [
+            {
+                "id": "dup-1",
+                "messages": [
+                    {"role": "user", "content": "Question one."},
+                    {"role": "assistant", "content": "Answer one."},
+                ],
+            },
+            {
+                "id": "dup-1",
+                "messages": [
+                    {"role": "user", "content": "Question two."},
+                    {"role": "assistant", "content": "Answer two."},
+                ],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "dup-sft.jsonl"
+            path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+
+            rows, errors, _ = main.load_sft_jsonl_rows(path)
+            data = main.training_data_quality_report(rows, long_char_threshold=20)
+            gate_errors = main.training_data_quality_errors(data, require_system=True)
+            args = main.argparse.Namespace(
+                input_file=str(path),
+                long_char_threshold=20,
+                require_system=True,
+                json=True,
+            )
+            with io.StringIO() as buffer, redirect_stdout(buffer):
+                exit_code = main.main_training_data_report_command(args)
+                output = buffer.getvalue()
+
+        self.assertEqual(errors, [])
+        self.assertIn("duplicate row ids: dup-1", gate_errors)
+        self.assertIn("missing system messages: 2 row(s)", gate_errors)
+        self.assertEqual(exit_code, 1)
+        self.assertIn('"format_errors"', output)
+        self.assertNotIn("Question one", output)
+        self.assertNotIn("Answer two", output)
 
     def test_main_distill_pipeline_writes_manifest_without_training_text(self):
         records = [

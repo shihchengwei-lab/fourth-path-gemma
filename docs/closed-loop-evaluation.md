@@ -60,13 +60,14 @@ It writes:
 For any generated SFT JSONL file:
 
 ```powershell
-python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --json
+python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --json
 ```
 
 The report includes only metadata such as category counts, source counts,
 short/long bucket counts, row length statistics, duplicate ids, and whether
-system messages are present. It does not print prompts, targets, or assistant
-outputs.
+system messages are present. With `--require-system`, it fails the release gate
+when any row lacks a system message or duplicate row ids are present. It does
+not print prompts, targets, or assistant outputs.
 
 ## Acceptance Rule
 
