@@ -7,7 +7,7 @@ create maintainer burden there.
 The previous audit proved that Ollama chat is not enough for faithful
 next-token experiments. It did not prove that no local backend path exists.
 This fork is useful evidence for what a logits/KV-capable runtime can expose,
-but it is not the current implementation priority.
+but it is not an owned dependency or the current implementation priority.
 
 Candidate backend:
 
@@ -17,10 +17,10 @@ branch: feature/turboquant-kv-cache
 observed head: e0954d1b9
 ```
 
-## What The Fork Exposes
+## Reference Surfaces
 
-The local fork has surfaces that are relevant to a future next-token and
-KV-cache trial:
+The local reference checkout has surfaces that are relevant to a future
+next-token and KV-cache trial:
 
 - `include/llama.h` exposes `llama_batch.logits`,
   `llama_get_logits()`, `llama_get_logits_ith()`, and backend-sampled logits.

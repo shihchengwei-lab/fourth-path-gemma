@@ -422,9 +422,14 @@ output length; they do not store prompt text or model output.
 Validate and measure the synthetic Main Agent role-behavior corpus:
 
 ```powershell
+python main.py local-release-gate --json
 python main.py main-check --min-total 40 --min-category 1
 python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max-length-ratio 4
 ```
+
+`local-release-gate` is a no-Ollama preflight. It runs the data-quality,
+distillation-format, verifier/tool-use, and inference-compute readiness gates
+before any slower model evaluation.
 
 The Main Agent seed corpus currently has 40 synthetic records, including
 near-boundary defensive security tasks and concise-control tasks. Recent
@@ -437,6 +442,7 @@ Export the same synthetic corpus for future LoRA / QLoRA experiments:
 
 ```powershell
 python main.py main-sft-export --output-file runs\main-agent-sft-seed.jsonl
+python main.py main-training-data-report --input-file runs\main-agent-sft-seed.jsonl --require-system --json
 ```
 
 Export a smaller LightReasoner-lite contrast set by comparing a stronger Main

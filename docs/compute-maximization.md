@@ -437,9 +437,9 @@ KV cache work.
 
 For reference-only backend notes, see
 [llama.cpp TurboQuant Reference Notes](llama-cpp-turboquant-backend.md). The
-`llama-cpp-turboquant` fork exposes logits and TurboQuant KV cache controls, but
-it is not this project's repository and should not receive pushes or PRs from
-this work.
+`llama-cpp-turboquant` reference checkout contains logits and TurboQuant KV
+cache surfaces, but it is not this project's repository and should not receive
+pushes or PRs from this work.
 
 Refresh the local readiness check with:
 

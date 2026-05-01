@@ -56,13 +56,21 @@ function Invoke-LoggedStep {
 
 Invoke-LoggedStep -Name "unit tests" -CommandArgs @("-m", "unittest", "discover", "-s", "tests", "-v")
 Invoke-LoggedStep -Name "syntax check" -CommandArgs @("-m", "py_compile", "main.py")
+Invoke-LoggedStep -Name "local release gate" -CommandArgs @("main.py", "local-release-gate", "--json")
 Invoke-LoggedStep -Name "architecture check" -CommandArgs @("main.py", "architecture-check", "--json")
 Invoke-LoggedStep -Name "architecture adversarial seed check" -CommandArgs @(
     "main.py", "architecture-adversarial-check", "--min-total", "12", "--min-layer", "6", "--json"
 )
 Invoke-LoggedStep -Name "main seed check" -CommandArgs @("main.py", "main-check", "--min-total", "40", "--min-category", "1", "--json")
+Invoke-LoggedStep -Name "main data quality check" -CommandArgs @("main.py", "main-data-quality-check", "--json")
 Invoke-LoggedStep -Name "cold eyes seed check" -CommandArgs @("main.py", "distill-check", "--min-pass", "19", "--min-fail", "25", "--min-clause", "8", "--json")
-Invoke-LoggedStep -Name "main sft export" -CommandArgs @("main.py", "main-sft-export", "--json", "--output-file", (Join-Path $RunsDir "main-agent-sft-seed-$stamp.jsonl"))
+$sftPath = Join-Path $RunsDir "main-agent-sft-seed-$stamp.jsonl"
+Invoke-LoggedStep -Name "verifier tool gate" -CommandArgs @("main.py", "verifier-tool-gate", "--json")
+Invoke-LoggedStep -Name "inference compute gate" -CommandArgs @("main.py", "inference-compute-gate", "--json")
+Invoke-LoggedStep -Name "main sft export" -CommandArgs @("main.py", "main-sft-export", "--json", "--output-file", $sftPath)
+Invoke-LoggedStep -Name "main sft format report" -CommandArgs @(
+    "main.py", "main-training-data-report", "--input-file", $sftPath, "--require-system", "--json"
+)
 Invoke-LoggedStep -Name "qwen warm" -CommandArgs @("main.py", "warm", "--profile", "qwen3-8b-local-max", "--json", "--timeout", "900")
 Invoke-LoggedStep -Name "architecture adversarial eval local max" -CommandArgs @(
     "main.py", "architecture-adversarial-eval", "--profile", "qwen3-8b-local-max", "--json", "--timeout", "900",
