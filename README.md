@@ -192,39 +192,39 @@ Three non-default model trial profiles are available:
 - `gemma3-12b-pressure`: 12B pressure test that keeps main and audit on
   `gemma3:12b` with a shorter 4096-token context.
 
-The latest local A/B run did not replace the default. In the 2026-05-01 idle
-run, `qwen3-8b-local-max` finished the fixed warm benchmark in about 21.7
-seconds with 3 pass / 1 refused. In the latest full idle run,
-`qwen3-8b-local-max` took about 21.1 seconds, `qwen3-8b-deliberate` took about
-31.6 seconds, `qwen3-8b-reasoning` took about 45.2 seconds, and the current
-two-candidate `qwen3-8b-search` profile took about 42.1 seconds with the same
-3 pass / 1 refused result.
+The latest local A/B run keeps the default conservative, but makes
+`qwen3-8b-s2t-lite` the strongest measured candidate. In the 2026-05-02 full
+idle run, the fixed warm benchmark finished with the same 3 pass / 1 refused
+result across measured profiles: `qwen3-8b-local-max` took about 11.3 seconds,
+`qwen3-8b-s2t-lite` took about 11.3 seconds, `qwen3-8b-deliberate` took about
+21.6 seconds, `qwen3-8b-reasoning` took about 33.1 seconds, and the current
+two-candidate `qwen3-8b-search` profile took about 34.0 seconds.
 
-On the 40-record Main Agent seed eval, `qwen3-8b-local-max` and
-`qwen3-8b-search` produced 33/40 and 37/40 clean cases respectively in the
-latest full idle run, with 0 refusal-like outputs in both runs. The current
-two-candidate search profile reduced overlong cases to 3/40 and removed the
-measured hidden-boundary leak, but it spent 120 Main Agent/selector calls versus
-40 for the default.
+On the 40-record Main Agent seed eval in that same full idle run,
+`qwen3-8b-s2t-lite` reached 40/40 clean cases with 0 refusal-like and 0
+overlong outputs while still using 40 Main Agent calls. `qwen3-8b-local-max`
+reached 36/40, `qwen3-8b-search` reached 37/40, `qwen3-8b-deliberate` reached
+37/40, and `qwen3-8b-reasoning` reached 36/40. The current two-candidate search
+profile still spends 120 Main Agent/selector calls, so its quality/latency
+tradeoff is weaker than the local selector on this corpus.
 After tightening the Main Agent contract for defensive and boundary-sensitive
 requests, a follow-up `qwen3-8b-local-max` seed eval reached 39/40 clean cases,
 and a second follow-up reached 38/40 clean cases. Both had 0 refusal-like
 outputs, 1-2 overlong cases, and average output/target length ratios around
 1.97-2.06 with the same 40 Main Agent calls. The current best cheap improvement
-is `qwen3-8b-s2t-lite`: the 2026-05-01 refactor validation run reached 40/40
-clean cases, 0 refusal-like outputs, 0 overlong outputs, average
-output/target length ratio 1.512, and still only 40 Main Agent calls. Its local
-selector triggered on 27/40 records and actually rewrote 17/40, which means the
-extra control came from local post-selection rather than additional model
-calls.
+is `qwen3-8b-s2t-lite`: the latest full idle run reached 40/40 clean cases, 0
+refusal-like outputs, 0 overlong outputs, and still only 40 Main Agent calls.
+Its local selector triggered on 26/40 records and actually rewrote 12/40, which
+means the extra control came from local post-selection rather than additional
+model calls.
 Reasoning mode produced more overlong outputs on this corpus, so thinking stays
 an explicit experiment rather than the default.
 
 Earlier model trials still matter as hardware evidence: `llama3.1-8b-candidate`
 finished in about 75.0 seconds because model switching dominated load time.
-`gemma3-12b-pressure` finished in about 61.3 seconds and passed the 44-record
-strict Cold Eyes eval, but its decode speed makes it a quality experiment, not
-the compute-first default.
+`gemma3-12b-pressure` has passed the fixed benchmark, but its decode speed and
+larger memory footprint keep it as a pressure test, not the compute-first
+default.
 
 ## Setup
 
