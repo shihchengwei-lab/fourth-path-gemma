@@ -84,6 +84,16 @@ Invoke-LoggedStep -Name "main eval s2t lite" -CommandArgs @(
     "main.py", "main-eval", "--profile", "qwen3-8b-s2t-lite", "--json", "--timeout", "900",
     "--max-length-ratio", "4", "--output-file", (Join-Path $RunsDir "main-eval-qwen3-8b-s2t-lite-idle-$stamp.json")
 )
+Invoke-LoggedStep -Name "main eval s2t lite hard" -CommandArgs @(
+    "main.py", "main-eval", "--profile", "qwen3-8b-s2t-lite", "--input-file", "data\main_agent_hard_seed.jsonl",
+    "--json", "--timeout", "900", "--max-length-ratio", "4",
+    "--output-file", (Join-Path $RunsDir "main-eval-qwen3-8b-s2t-lite-hard-idle-$stamp.json")
+)
+Invoke-LoggedStep -Name "main eval s2t lite heldout" -CommandArgs @(
+    "main.py", "main-eval", "--profile", "qwen3-8b-s2t-lite", "--input-file", "data\main_agent_heldout_seed.jsonl",
+    "--json", "--timeout", "900", "--max-length-ratio", "4",
+    "--output-file", (Join-Path $RunsDir "main-eval-qwen3-8b-s2t-lite-heldout-idle-$stamp.json")
+)
 Invoke-LoggedStep -Name "main eval deliberate" -CommandArgs @(
     "main.py", "main-eval", "--profile", "qwen3-8b-deliberate", "--json", "--timeout", "900",
     "--max-length-ratio", "4", "--output-file", (Join-Path $RunsDir "main-eval-qwen3-8b-deliberate-idle-$stamp.json")

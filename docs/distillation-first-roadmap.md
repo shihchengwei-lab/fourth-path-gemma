@@ -34,6 +34,10 @@ reports only metrics: step status, Main Agent clean counts, benchmark pass
 counts, architecture adversarial pass counts, and Cold Eyes exact-match counts.
 It does not print prompts, targets, candidates, or model outputs.
 
+The idle runner includes `qwen3-8b-s2t-lite` seed, hard, and held-out Main
+Agent evals so the next distillation round can start from all three quality
+gates instead of only the saturated seed corpus.
+
 ## 1. Distillation Data Quality
 
 Data quality is the first gate.

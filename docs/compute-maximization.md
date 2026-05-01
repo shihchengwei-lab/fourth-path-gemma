@@ -632,8 +632,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\idle-long-run.ps1
 ```
 
 It runs tests, corpus checks, SFT export, Qwen3 main-eval for fast,
-deliberate, reasoning, and search profiles, warm benchmarks, and strict Cold
-Eyes eval. Add
+`qwen3-8b-s2t-lite` seed/hard/held-out, deliberate, reasoning, and search
+profiles, warm benchmarks, and strict Cold Eyes eval. Add
 `-IncludeModelTrials` only when the machine can spend extra time on non-default
 model profiles.
 
