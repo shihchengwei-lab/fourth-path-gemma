@@ -409,6 +409,7 @@ For Main Agent behavior before any LoRA work:
 
 ```powershell
 python main.py main-check --min-total 40 --min-category 1 --json
+python main.py main-data-quality-check --json
 python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max-length-ratio 4
 python main.py main-sft-export --output-file runs\main-agent-sft-seed.jsonl --json
 ```
@@ -426,10 +427,16 @@ For the 2026-05-02 continuation gate, see
 open questions to concrete evidence: next-token headroom, paper directions,
 and KV-cache memory pressure.
 
-For the concrete local backend candidate, see
-[llama.cpp TurboQuant Backend Path](llama-cpp-turboquant-backend.md). The
+The current priority order is documented in
+[Distillation-First Roadmap](distillation-first-roadmap.md): distillation data
+quality, distillation format, verifier/tool-use, inference-time compute, then
+KV cache work.
+
+For reference-only backend notes, see
+[llama.cpp TurboQuant Reference Notes](llama-cpp-turboquant-backend.md). The
 `llama-cpp-turboquant` fork exposes logits and TurboQuant KV cache controls, but
-it still needs a local build before this repo can use it as a runtime.
+it is not this project's repository and should not receive pushes or PRs from
+this work.
 
 Refresh the local readiness check with:
 
@@ -442,12 +449,18 @@ For backend-level cache and routing economics:
 ```powershell
 python main.py next-token-headroom --json
 python main.py next-token-headroom --backend sglang-r2r --json
-python main.py next-token-headroom --backend llama-cpp-turboquant --json
 python main.py r2r-estimate --json
 python main.py r2r-estimate --backend sglang-r2r --json
-python main.py r2r-estimate --backend llama-cpp-turboquant --json
 python main.py kv-cache-estimate --json
 python main.py kv-cache-estimate --context-tokens 40960 --json
+```
+
+The reference-only capability model is available for documentation checks, not
+as a current implementation target:
+
+```powershell
+python main.py next-token-headroom --backend llama-cpp-turboquant --json
+python main.py r2r-estimate --backend llama-cpp-turboquant --json
 ```
 
 To convert extra inference into verifier-accepted R1-lite training rows:

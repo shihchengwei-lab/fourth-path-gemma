@@ -1,8 +1,13 @@
-# llama.cpp TurboQuant Backend Path
+# llama.cpp TurboQuant Reference Notes
 
-This note corrects the earlier backend conclusion. The previous audit proved
-that Ollama chat is not enough for faithful next-token experiments. It did not
-prove that no local backend path exists.
+This is reference material only. `C:\Users\kk789\Desktop\llama-cpp-turboquant`
+is not this project's repository. Do not push to it, open PRs from this work, or
+create maintainer burden there.
+
+The previous audit proved that Ollama chat is not enough for faithful
+next-token experiments. It did not prove that no local backend path exists.
+This fork is useful evidence for what a logits/KV-capable runtime can expose,
+but it is not the current implementation priority.
 
 Candidate backend:
 
@@ -12,10 +17,10 @@ branch: feature/turboquant-kv-cache
 observed head: e0954d1b9
 ```
 
-## What The Fork Already Exposes
+## What The Fork Exposes
 
-The local fork has the core surfaces needed for a real next-token and KV-cache
-trial:
+The local fork has surfaces that are relevant to a future next-token and
+KV-cache trial:
 
 - `include/llama.h` exposes `llama_batch.logits`,
   `llama_get_logits()`, `llama_get_logits_ith()`, and backend-sampled logits.
@@ -43,9 +48,10 @@ To refresh this local evidence:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check-llama-cpp-turboquant.ps1
 ```
 
-## Current Local Blocker
+## Current Local Status
 
-The fork is not currently runnable on this Windows shell:
+The fork is not currently runnable on this Windows shell, and this repo should
+not spend current effort on changing that:
 
 - no `llama-cli.exe`, `llama-server.exe`, or `llama-bench.exe` found under the
   checkout;
@@ -58,36 +64,42 @@ The fork is not currently runnable on this Windows shell:
 So the correct status is:
 
 ```text
-KV cache path: available in a local candidate backend, not built yet.
-Next-token logits path: available in the llama.cpp C API, not wired into this repo yet.
-R2R path: partially enabled by backend primitives, still missing a trained router.
+KV cache path: reference implementation exists, deferred.
+Next-token logits path: reference C API exists, not wired into this repo.
+R2R path: still missing router, residency proof, and project-owned integration.
 ```
 
-## How To Test After Build Tools Exist
+## Deferred Test Shape
 
-First build the fork in a clean Windows developer shell or a clean WSL-native
-clone:
+Do not run this before the higher-priority distillation and verifier gates are
+stable. If revisited later, build in a clean private scratch area or project-owned
+workspace, not by pushing to the reference repo.
+
+Possible future build shape:
 
 ```powershell
-cmake -S C:\Users\kk789\Desktop\llama-cpp-turboquant -B C:\Users\kk789\Desktop\llama-cpp-turboquant\build-cuda -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build C:\Users\kk789\Desktop\llama-cpp-turboquant\build-cuda --config Release -j
+$source = "E:\scratch\llama-cpp-turboquant-reference"
+$build = "E:\scratch\llama-cpp-turboquant-build"
+cmake -S $source -B $build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build $build --config Release -j
 ```
 
-Then benchmark the existing Qwen3 GGUF blob:
+Possible future benchmark shape:
 
 ```powershell
 $model = "E:\ollama-models\blobs\sha256-a3de86cd1c132c822487ededd47a324c50491393e6565cd14bafa40d0b8e686f"
-C:\Users\kk789\Desktop\llama-cpp-turboquant\build-cuda\bin\llama-bench.exe -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk f16 -ctv f16 -fa on
-C:\Users\kk789\Desktop\llama-cpp-turboquant\build-cuda\bin\llama-bench.exe -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk q8_0 -ctv q8_0 -fa on
-C:\Users\kk789\Desktop\llama-cpp-turboquant\build-cuda\bin\llama-bench.exe -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk q8_0 -ctv turbo4 -fa on
-C:\Users\kk789\Desktop\llama-cpp-turboquant\build-cuda\bin\llama-bench.exe -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk q8_0 -ctv turbo2 -fa on
+$bench = "E:\scratch\llama-cpp-turboquant-build\bin\llama-bench.exe"
+& $bench -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk f16 -ctv f16 -fa on
+& $bench -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk q8_0 -ctv q8_0 -fa on
+& $bench -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk q8_0 -ctv turbo4 -fa on
+& $bench -m $model -ngl 99 -p 512 -n 128 -r 3 -ctk q8_0 -ctv turbo2 -fa on
 ```
 
 Use `q8_0` for K first on Qwen-style high-GQA models, because the fork itself
 warns that symmetric TurboQuant K can degrade quality when many Q heads share
 few KV heads.
 
-Minimum acceptance gate:
+Deferred acceptance gate:
 
 1. `llama-bench` runs on `qwen3:8b` without falling back to CPU-only speed.
 2. Quantized KV reduces memory or enables longer context without a large decode
@@ -98,7 +110,7 @@ Minimum acceptance gate:
 
 ## CLI Capability Model
 
-This repo now recognizes the backend model:
+This repo recognizes the reference model only to prevent overclaiming:
 
 ```powershell
 python main.py next-token-headroom --backend llama-cpp-turboquant --json
@@ -107,11 +119,18 @@ python main.py r2r-estimate --backend llama-cpp-turboquant --json
 
 Interpretation:
 
-- `next-token-headroom` treats the backend as ready for token-level experiments
-  because logits, token replacement through a custom decode loop, and KV prefill
-  are backend primitives.
-- `r2r-estimate` does not treat it as full R2R-ready, because the trained router
-  and memory-residency proof are still external work.
+- `next-token-headroom` reports reference primitives, not current project
+  readiness.
+- `r2r-estimate` does not treat it as full R2R-ready, because the trained router,
+  memory-residency proof, and project-owned integration are still external work.
+
+Current project priority remains:
+
+1. distillation data quality
+2. distillation format
+3. verifier and tool-use
+4. inference-time compute
+5. KV cache changes
 
 ## Paper Pointers
 

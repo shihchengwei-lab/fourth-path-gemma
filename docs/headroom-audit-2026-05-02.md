@@ -44,9 +44,10 @@ Local backend reality from this machine:
   `llama3.1:8b`, `gemma3:12b`, and `gemma4:e4b`.
 - `llama-server` and `llama-cli` were not found on PATH.
 - `C:\Users\kk789\Desktop\llama-cpp-turboquant` exists on
-  `feature/turboquant-kv-cache` and materially changes the next step. It exposes
-  logits APIs, KV cache type controls, and TurboQuant cache types (`turbo2`,
-  `turbo3`, `turbo4`), but it is not built locally yet.
+  `feature/turboquant-kv-cache`. It is a reference repo, not an owned project.
+  Do not push to it or create maintainer burden there. Its useful evidence is
+  that llama.cpp-style runtimes can expose logits APIs, KV cache type controls,
+  and TurboQuant cache types (`turbo2`, `turbo3`, `turbo4`).
 - Python imports for `torch`, `transformers`, `sglang`, `llama_cpp`, and `vllm`
   were not installed in the active Python.
 - `nvidia-smi` reported an RTX 4060 Laptop GPU with `8188 MiB` total VRAM at
@@ -55,8 +56,11 @@ Local backend reality from this machine:
   first llama.cpp test model after the backend is built.
 
 So the immediate blocker for faithful next-token experiments is no longer
-"unknown backend direction." It is build/runtime wiring for a concrete local
-backend candidate. See [llama.cpp TurboQuant Backend Path](llama-cpp-turboquant-backend.md).
+"unknown backend direction." But backend work is not the top priority. The
+project should first improve distillation data quality, distillation format,
+verifier/tool-use, and inference-time compute. See
+[Distillation-First Roadmap](distillation-first-roadmap.md) and
+[llama.cpp TurboQuant Reference Notes](llama-cpp-turboquant-backend.md).
 
 ## 2. Are There More Papers Worth Using?
 
@@ -118,16 +122,14 @@ At least one gate is clearly open:
 3. Current papers support backend and adapter directions that are not exhausted
    by the existing prompt/profile work.
 
-The next concrete work should be backend evaluation, not another prompt-only
-patch:
+The next concrete work should follow this order:
 
-1. keep default chat on `qwen3-8b-s2t-lite`;
-2. build or otherwise obtain `llama-cpp-turboquant` binaries, then test token
-   probabilities, prefix cache, KV quantization, and speculative decoding;
-3. accept it only if held-out repo checks and public smoke keep quality while
-   latency or memory improves;
-4. use LoRA/adapter only when held-out failures prove the fixed distribution
-   needs a weight-level change.
+1. improve distillation data quality;
+2. lock the distillation JSONL format and split discipline;
+3. strengthen deterministic verifiers and audited tool-use boundaries;
+4. spend inference-time compute only where held-out gates justify it;
+5. revisit KV cache/backend changes only after the above gates show a runtime
+   bottleneck.
 
 ## Sources
 

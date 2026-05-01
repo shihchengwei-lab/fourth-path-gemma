@@ -1547,6 +1547,26 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.min_total, 10)
         self.assertEqual(args.min_category, 2)
 
+    def test_parser_accepts_main_data_quality_check_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "main-data-quality-check",
+                "--input-file",
+                "seed.jsonl",
+                "--input-file",
+                "heldout.jsonl",
+                "--require-verifier-pattern",
+                "heldout",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "main-data-quality-check")
+        self.assertEqual(args.input_file, ["seed.jsonl", "heldout.jsonl"])
+        self.assertEqual(args.require_verifier_pattern, ["heldout"])
+        self.assertTrue(args.json)
+
     def test_parser_accepts_main_eval_command(self):
         parser = main.build_parser()
         args = parser.parse_args(
@@ -1794,7 +1814,7 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(sglang["backend_ready_for_true_token_routing"])
         self.assertFalse(llama_cpp["backend_ready_for_true_token_routing"])
         self.assertIn("not_exposed", {item["status"] for item in ollama["requirements"]})
-        self.assertIn("partial_logits_only", {item["status"] for item in llama_cpp["requirements"]})
+        self.assertIn("reference_implementation_only", {item["status"] for item in llama_cpp["requirements"]})
 
     def test_parser_accepts_kv_cache_estimate_command(self):
         parser = main.build_parser()
@@ -1853,9 +1873,9 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(ollama["token_level_backend_ready"])
         self.assertTrue(ollama["continue_recommended"])
         self.assertTrue(sglang["token_level_backend_ready"])
-        self.assertTrue(llama_cpp["token_level_backend_ready"])
+        self.assertFalse(llama_cpp["token_level_backend_ready"])
         llama_statuses = {item["name"]: item["status"] for item in llama_cpp["backend_requirements"]}
-        self.assertEqual(llama_statuses["token_level_logits"], "supported_by_backend")
+        self.assertEqual(llama_statuses["token_level_logits"], "reference_implementation_only")
         self.assertEqual(llama_statuses["trained_router"], "external")
         self.assertIn("adapter_training", {item["name"] for item in ollama["factors"]})
 
@@ -1874,6 +1894,50 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.verifier_records, 16)
         self.assertGreaterEqual(result.categories["hard_math"], 4)
         self.assertGreaterEqual(result.categories["hard_code_repair"], 4)
+
+    def test_main_data_quality_check_passes_default_corpora(self):
+        data = main.main_data_quality_check_data(list(main.DEFAULT_MAIN_DATA_QUALITY_FILES))
+
+        self.assertEqual(data["errors"], [])
+        self.assertEqual(data["total_records"], 68)
+        self.assertEqual(data["total_verifier_records"], 28)
+        self.assertEqual(data["duplicate_ids"], [])
+        self.assertEqual(data["duplicate_prompt_hashes"], [])
+
+    def test_main_data_quality_check_flags_overlap_and_missing_verifier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seed = Path(tmp) / "main_agent_seed.jsonl"
+            heldout = Path(tmp) / "main_agent_heldout_seed.jsonl"
+            seed.write_text(
+                json.dumps(
+                    {
+                        "id": "row-1",
+                        "category": "format",
+                        "prompt": "Return exactly two bullets.",
+                        "target_response": "- one\n- two",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            heldout.write_text(
+                json.dumps(
+                    {
+                        "id": "row-2",
+                        "category": "heldout_format",
+                        "prompt": "Return exactly two bullets.",
+                        "target_response": "- alpha\n- beta",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            data = main.main_data_quality_check_data([seed, heldout])
+
+        self.assertTrue(any("verifier required" in error for error in data["errors"]))
+        self.assertTrue(any("duplicate prompt" in error for error in data["errors"]))
+        self.assertEqual(len(data["duplicate_prompt_hashes"]), 1)
 
     def test_main_agent_heldout_seed_corpus_is_valid_and_separate(self):
         heldout = main.check_main_agent_corpus(main.PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl")

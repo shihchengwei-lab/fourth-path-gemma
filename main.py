@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,11 @@ DEFAULT_QWEN3_8B_CONTEXT = 8192
 DEFAULT_KV_CACHE_BITS = 16
 DEFAULT_KV_CACHE_QUANT_BITS = 4
 TOKEN_BACKEND_CHOICES = ("ollama-chat", "sglang-r2r", "llama-cpp-turboquant")
+DEFAULT_MAIN_DATA_QUALITY_FILES = (
+    PROJECT_ROOT / "data" / "main_agent_seed.jsonl",
+    PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl",
+    PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl",
+)
 NEXT_TOKEN_FACTORS: tuple[tuple[str, str, str], ...] = (
     (
         "prompt_context",
@@ -2230,6 +2236,22 @@ def build_parser() -> argparse.ArgumentParser:
     main_check.add_argument("--min-category", type=int, default=0, help="Minimum required records per category.")
     main_check.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
+    main_quality = subparsers.add_parser(
+        "main-data-quality-check",
+        help="Check Main Agent distillation seed quality across train, hard, and held-out files.",
+    )
+    main_quality.add_argument(
+        "--input-file",
+        action="append",
+        help="JSONL corpus path. Can be repeated. Defaults to seed, hard seed, and held-out seed.",
+    )
+    main_quality.add_argument(
+        "--require-verifier-pattern",
+        action="append",
+        help="Require verifier coverage for files whose name contains this text. Defaults to hard and heldout.",
+    )
+    main_quality.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
     main_sft = subparsers.add_parser(
         "main-sft-export",
         help="Export the Main Agent seed corpus as chat-style SFT JSONL for LoRA experiments.",
@@ -3599,6 +3621,109 @@ def render_main_agent_check(result: MainAgentCheck) -> str:
     return "\n".join(lines)
 
 
+def stable_text_hash(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", text.strip().casefold())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+
+
+def main_data_quality_check_data(
+    paths: list[Path],
+    require_verifier_patterns: tuple[str, ...] = ("hard", "heldout"),
+) -> dict[str, Any]:
+    errors: list[str] = []
+    files: list[dict[str, Any]] = []
+    seen_ids: dict[str, str] = {}
+    seen_prompts: dict[str, tuple[str, str]] = {}
+    duplicate_ids: list[str] = []
+    duplicate_prompt_hashes: list[str] = []
+    total_records = 0
+    total_verifier_records = 0
+
+    for path in paths:
+        records, load_errors, total = load_main_agent_records(path)
+        errors.extend(f"{path}: {error}" for error in load_errors)
+        total_records += total
+        verifier_records = sum(bool(record.verifier) for record in records)
+        total_verifier_records += verifier_records
+        categories = sorted_count_by(record.category for record in records)
+        requires_verifier = any(pattern in path.name for pattern in require_verifier_patterns)
+        all_missing_verifier_ids = [record.record_id for record in records if not record.verifier]
+        missing_verifier_ids = all_missing_verifier_ids if requires_verifier else []
+
+        if requires_verifier and missing_verifier_ids:
+            errors.append(
+                f"{path}: verifier required but missing for {len(missing_verifier_ids)} records"
+            )
+
+        for record in records:
+            previous_path = seen_ids.get(record.record_id)
+            if previous_path is not None:
+                duplicate_ids.append(record.record_id)
+                errors.append(
+                    f"duplicate id across corpora: {record.record_id} in {previous_path} and {path}"
+                )
+            else:
+                seen_ids[record.record_id] = str(path)
+
+            prompt_hash = stable_text_hash(record.prompt)
+            previous_prompt = seen_prompts.get(prompt_hash)
+            if previous_prompt is not None:
+                duplicate_prompt_hashes.append(prompt_hash)
+                previous_id, previous_prompt_path = previous_prompt
+                errors.append(
+                    "duplicate prompt across corpora: "
+                    f"hash={prompt_hash} ids={previous_id},{record.record_id} "
+                    f"paths={previous_prompt_path},{path}"
+                )
+            else:
+                seen_prompts[prompt_hash] = (record.record_id, str(path))
+
+        files.append(
+            {
+                "path": str(path),
+                "total": total,
+                "categories": categories,
+                "verifier_records": verifier_records,
+                "verifier_rate": round(safe_ratio(verifier_records, total), 3),
+                "unverified_records": len(all_missing_verifier_ids),
+                "requires_verifier": requires_verifier,
+                "missing_verifier_ids": missing_verifier_ids,
+            }
+        )
+
+    return {
+        "files": files,
+        "total_records": total_records,
+        "total_verifier_records": total_verifier_records,
+        "overall_verifier_rate": round(safe_ratio(total_verifier_records, total_records), 3),
+        "duplicate_ids": sorted(set(duplicate_ids)),
+        "duplicate_prompt_hashes": sorted(set(duplicate_prompt_hashes)),
+        "require_verifier_patterns": list(require_verifier_patterns),
+        "errors": errors,
+    }
+
+
+def render_main_data_quality_check(data: dict[str, Any]) -> str:
+    status = "ok" if not data["errors"] else "error"
+    lines = [
+        f"Main Agent data quality: {status}",
+        f"Records: {data['total_records']}",
+        f"Verifier records: {data['total_verifier_records']} ({data['overall_verifier_rate']:.3f})",
+        "Files:",
+    ]
+    for file_data in data["files"]:
+        lines.append(
+            "- {path}: total={total}, verifier={verifier_records} ({verifier_rate:.3f}), "
+            "unverified={unverified_records}, requires_verifier={requires_verifier}".format(**file_data)
+        )
+    if data["duplicate_ids"] or data["duplicate_prompt_hashes"]:
+        lines.append("Duplicates detected.")
+    if data["errors"]:
+        lines.extend(["", "Errors:"])
+        lines.extend(f"- {error}" for error in data["errors"])
+    return "\n".join(lines)
+
+
 def main_check_command(args: argparse.Namespace) -> int:
     result = apply_main_agent_requirements(
         check_main_agent_corpus(Path(args.input_file)),
@@ -3607,6 +3732,14 @@ def main_check_command(args: argparse.Namespace) -> int:
     )
     print_json_or_text(result.public_dict(), args.json, render_main_agent_check(result))
     return 1 if result.errors else 0
+
+
+def main_data_quality_check_command(args: argparse.Namespace) -> int:
+    paths = [Path(path) for path in args.input_file] if args.input_file else list(DEFAULT_MAIN_DATA_QUALITY_FILES)
+    patterns = tuple(args.require_verifier_pattern or ("hard", "heldout"))
+    data = main_data_quality_check_data(paths, require_verifier_patterns=patterns)
+    print_json_or_text(data, args.json, render_main_data_quality_check(data))
+    return 1 if data["errors"] else 0
 
 
 def main_sft_messages(record: MainAgentRecord, include_system: bool = True) -> list[dict[str, str]]:
@@ -3973,11 +4106,11 @@ def r2r_backend_requirement_status(backend: str) -> dict[str, str]:
         }
     if backend == "llama-cpp-turboquant":
         return {
-            "token_level_logits": "supported_by_backend",
-            "hidden_states_or_router_features": "partial_logits_only",
-            "single_token_routing": "supported_by_backend",
-            "large_model_prefill": "supported_by_backend",
-            "co_resident_models": "requires_local_memory_measurement",
+            "token_level_logits": "reference_implementation_only",
+            "hidden_states_or_router_features": "reference_logits_only",
+            "single_token_routing": "reference_decode_loop_only",
+            "large_model_prefill": "reference_kv_api_only",
+            "co_resident_models": "not_measured_locally",
             "trained_router": "external",
         }
     raise SetupError(f"Unknown R2R backend: {backend}")
@@ -5978,6 +6111,8 @@ def main(argv: list[str] | None = None) -> int:
             return benchmark_command(args)
         if args.command == "main-check":
             return main_check_command(args)
+        if args.command == "main-data-quality-check":
+            return main_data_quality_check_command(args)
         if args.command == "main-sft-export":
             return main_sft_export_command(args)
         if args.command == "main-contrast-export":
