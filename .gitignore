@@ -1,6 +1,13 @@
 runs/*.jsonl
+runs/*.json
+runs/*.log
+runs/public-bench/
+runs/public-bench-audit/
+runs/public-bench-*/
 __pycache__/
 tests/__pycache__/
 *.pyc
 .pytest_cache/
 downloads/
+.venv-bench/
+HANDOVER.md

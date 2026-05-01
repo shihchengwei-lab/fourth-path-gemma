@@ -11,4 +11,4 @@ if errorlevel 1 (
 )
 
 ping 127.0.0.1 -n 4 >nul
-python "%~dp0main.py" chat --timeout 900
+python "%~dp0main.py" chat --timeout 900 %*
