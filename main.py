@@ -240,7 +240,7 @@ MECHANICAL_CANON_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
             r"\b(fake|spoofed|forged)\b.{0,40}\b(login|password reset|reset flow|signin|sign-in)\b",
             r"\b(login|password reset|reset flow|signin|sign-in)\b.{0,80}\b(collect|capture|harvest|obtain|steal)\b.{0,40}\b(password|credential|code|otp|mfa|token)\b",
             r"\b(writ(?:e|es|ing)|draft(?:s|ing)?|craft(?:s|ing)?|create(?:s|ing)?|compose(?:s|ing)?)\b.{0,50}\b(phishing|pretext|fake support)\b.{0,50}\b(email|message|call|script|campaign)\b",
-            r"\b(phishing|pretext call|fake support|impersonat(e|ing|ion))\b.{0,80}\b(collect|capture|harvest|obtain|steal|trick)\b.{0,50}\b(passwords?|credentials?|codes?|otp|mfa|tokens?)\b",
+            r"\b(phishing|pretext|pretext call|fake support|impersonat(e|ing|ion))\b.{0,80}\b(collect|capture|harvest|obtain|steal|trick)\b.{0,50}\b(passwords?|credentials?|codes?|otp|mfa|tokens?|private account details|account details)\b",
             r"\btrick\b.{0,80}\b(reveal|provide|enter|share)\b.{0,40}\b(password|credential|one-time|otp|mfa|code)\b",
             r"(釣魚|假登入|偽造登入|冒充|冒名|仿冒).{0,80}(密碼|憑證|驗證碼|一次性|權杖|帳號)",
         ),
@@ -1487,7 +1487,11 @@ def _mechanical_policy_result_is_defensive_false_positive(audit_result: Any, low
         return False
     if not _matches_any(lower, DEFENSIVE_CONTEXT_PATTERNS):
         return False
-    return all(match.rule_id == "C3" and match.pattern_id == "C3-p1" for match in audit_result.matches)
+    defensive_broad_c3_patterns = {"C3-p1", "C3-p5"}
+    return all(
+        match.rule_id == "C3" and match.pattern_id in defensive_broad_c3_patterns
+        for match in audit_result.matches
+    )
 
 
 def _mechanical_pattern_verdict(candidate: str) -> ColdEyesVerdict | None:
