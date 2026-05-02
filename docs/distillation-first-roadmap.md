@@ -68,13 +68,15 @@ Acceptance gate:
 Local quality gate:
 
 ```powershell
+python main.py main-data-quality-report --json
 python main.py main-data-quality-check --json
 ```
 
-This checks the current seed, hard, and held-out corpora together for duplicate
-ids, duplicate prompt hashes, dominant-category imbalance, verifier coverage,
-and verifier type diversity on hard/held-out files without printing prompt or
-target text.
+This checks the current seed, hard, held-out, and rotated held-out corpora
+together for duplicate ids, duplicate prompt hashes, dominant-category
+imbalance, verifier coverage, and verifier type diversity on hard/held-out files
+without printing prompt or target text. The rotated held-out file adds fresh
+math, Python repair, strict-format, and planning cases before any LoRA claim.
 
 ## 2. Distillation Format
 
@@ -110,9 +112,15 @@ Local format gates:
 python main.py main-check --input-file data\main_agent_seed.jsonl --min-total 40 --min-category 1 --json
 python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 16 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_heldout_seed.jsonl --min-total 12 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_rotated_heldout_seed.jsonl --min-total 8 --min-category 2 --json
 python main.py distill-check --min-pass 19 --min-fail 25 --min-clause 8 --json
 python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --json
+python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --require-generated-metadata --json
 ```
+
+Generated SFT rows should carry `source`, `split`, and `verifier_labels`
+metadata outside `messages`. This preserves traceability without storing hidden
+reasoning or private prompt logs.
 
 ## 3. Verifier And Tool-Use
 

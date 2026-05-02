@@ -357,6 +357,40 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
     )
     main_quality.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
+    main_quality_report = subparsers.add_parser(
+        "main-data-quality-report",
+        help="Report Main Agent corpus quality metadata without treating findings as a release gate.",
+    )
+    main_quality_report.add_argument(
+        "--input-file",
+        action="append",
+        help="JSONL corpus path. Can be repeated. Defaults to seed, hard seed, held-out seed, and rotated held-out seed.",
+    )
+    main_quality_report.add_argument(
+        "--require-verifier-pattern",
+        action="append",
+        help="Mark files whose name contains this text as verifier-required. Defaults to hard and heldout.",
+    )
+    main_quality_report.add_argument(
+        "--max-category-share",
+        type=float,
+        default=0.5,
+        help="Dominant-category share threshold used for the report. Default: 0.5.",
+    )
+    main_quality_report.add_argument(
+        "--min-records-for-category-balance",
+        type=int,
+        default=8,
+        help="Minimum records before reporting dominant-category share as gated. Default: 8.",
+    )
+    main_quality_report.add_argument(
+        "--min-verifier-types",
+        type=int,
+        default=3,
+        help="Minimum verifier field types expected in verifier-required files. Default: 3.",
+    )
+    main_quality_report.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
     main_sft = subparsers.add_parser(
         "main-sft-export",
         help="Export the Main Agent seed corpus as chat-style SFT JSONL for LoRA experiments.",
@@ -563,6 +597,11 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
         "--require-system",
         action="store_true",
         help="Fail if any row is missing a system message.",
+    )
+    training_report.add_argument(
+        "--require-generated-metadata",
+        action="store_true",
+        help="Fail if generated rows are missing source, split, or verifier label metadata.",
     )
     training_report.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
@@ -771,6 +810,39 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
         type=float,
         help="Flag outputs longer than this output/target character ratio as overlong.",
     )
+
+    main_eval_ablation = subparsers.add_parser(
+        "main-eval-ablation",
+        help="Run multiple Main Agent eval profiles on the same corpus and compare cost per clean case.",
+    )
+    main_eval_ablation.add_argument(
+        "--profile",
+        action="append",
+        choices=sorted(config.runtime_profiles),
+        help="Profile to evaluate. Can be repeated. Defaults to local-max, s2t-lite, and compute-optimal-lite.",
+    )
+    main_eval_ablation.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    main_eval_ablation.add_argument(
+        "--input-file",
+        default=str(config.project_root / "data" / "main_agent_rotated_heldout_seed.jsonl"),
+        help="JSONL corpus path. Default: data/main_agent_rotated_heldout_seed.jsonl.",
+    )
+    main_eval_ablation.add_argument(
+        "--runs-dir",
+        default=str(config.project_root / "runs"),
+        help="Directory for ablation summaries. Default: runs.",
+    )
+    main_eval_ablation.add_argument(
+        "--output-file",
+        help="Optional ablation JSON path. Default: runs/main-eval-ablation-<run-id>.json",
+    )
+    main_eval_ablation.add_argument(
+        "--max-length-ratio",
+        type=float,
+        help="Flag outputs longer than this output/target character ratio as overlong.",
+    )
+    main_eval_ablation.add_argument("--ollama-host", default=config.default_ollama_host, help="Ollama host URL.")
+    main_eval_ablation.add_argument("--timeout", type=int, default=config.default_timeout_seconds, help="Ollama timeout seconds.")
 
     architecture_adversarial_eval = subparsers.add_parser(
         "architecture-adversarial-eval",

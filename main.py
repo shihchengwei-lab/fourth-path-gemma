@@ -155,6 +155,7 @@ from training_data import (
     training_data_quality_errors,
     training_data_quality_report,
     training_row_assistant_text,
+    verifier_metadata_labels,
 )
 
 from audit.engine import run_audit
@@ -171,6 +172,7 @@ DEFAULT_MAIN_DATA_QUALITY_FILES = (
     PROJECT_ROOT / "data" / "main_agent_seed.jsonl",
     PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl",
     PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl",
+    PROJECT_ROOT / "data" / "main_agent_rotated_heldout_seed.jsonl",
 )
 REFUSAL_OUTPUT = "這個請求無法協助，因為它超出目前系統允許的邊界。"
 LOCAL_OLLAMA_EXE = Path("E:/Ollama/ollama.exe")
@@ -1956,6 +1958,20 @@ def main_data_quality_check_command(args: argparse.Namespace) -> int:
     return 1 if data["errors"] else 0
 
 
+def main_data_quality_report_command(args: argparse.Namespace) -> int:
+    paths = [Path(path) for path in args.input_file] if args.input_file else list(DEFAULT_MAIN_DATA_QUALITY_FILES)
+    patterns = tuple(args.require_verifier_pattern or ("hard", "heldout"))
+    data = main_data_quality_check_data(
+        paths,
+        require_verifier_patterns=patterns,
+        max_category_share=args.max_category_share,
+        min_records_for_category_balance=args.min_records_for_category_balance,
+        min_verifier_types=args.min_verifier_types,
+    )
+    print_json_or_text(data, args.json, render_main_data_quality_check(data))
+    return 0
+
+
 def main_sft_messages(record: MainAgentRecord, include_system: bool = True) -> list[dict[str, str]]:
     return main_sft_messages_core(
         record,
@@ -1968,26 +1984,45 @@ def export_main_sft(
     records: list[MainAgentRecord],
     output_file: Path,
     include_system: bool = True,
+    source: str = "synthetic_seed",
+    split: str = "train_seed",
 ) -> dict[str, Any]:
     return export_main_sft_core(
         records,
         output_file,
         MAIN_AGENT_SYSTEM_PROMPT,
         include_system=include_system,
+        source=source,
+        split=split,
     )
 
 
+def infer_main_sft_source_split(input_file: Path) -> tuple[str, str]:
+    name = input_file.name.lower()
+    if "rotated_heldout" in name:
+        return "synthetic_rotated_heldout", "heldout_eval"
+    if "heldout" in name:
+        return "synthetic_heldout", "heldout_eval"
+    if "hard" in name:
+        return "synthetic_hard", "train_hard"
+    return "synthetic_seed", "train_seed"
+
+
 def main_sft_export_command(args: argparse.Namespace) -> int:
-    records, errors, total = load_main_agent_records(Path(args.input_file))
+    input_file = Path(args.input_file)
+    records, errors, total = load_main_agent_records(input_file)
     if errors:
-        result = MainAgentCheck(Path(args.input_file), total, {}, errors)
+        result = MainAgentCheck(input_file, total, {}, errors)
         print_json_or_text(result.public_dict(), args.json, render_main_agent_check(result))
         return 1
 
+    source, split = infer_main_sft_source_split(input_file)
     data = export_main_sft(
         records,
         Path(args.output_file),
         include_system=not args.no_system,
+        source=source,
+        split=split,
     )
     print_json_or_text(data, args.json, render_main_sft_export(data))
     return 0
@@ -2082,6 +2117,12 @@ def main_contrast_export_row(
         "id": record.record_id,
         "category": record.category,
         "source": "expert_amateur_contrast",
+        "split": "train_candidate",
+        "verifier_labels": [
+            "expert_clean",
+            "amateur_worse",
+            *verifier_metadata_labels(record.verifier),
+        ],
         "expert_profile": expert_profile,
         "amateur_profile": amateur_profile,
         "score_gap": round(score_gap, 3),
@@ -2355,6 +2396,11 @@ def main_r1_sample_export_row(
         "record_id": record.record_id,
         "category": record.category,
         "source": "r1_rejection_sampling",
+        "split": "train_candidate",
+        "verifier_labels": [
+            "accepted_by_local_verifier",
+            *verifier_metadata_labels(record.verifier),
+        ],
         "profile": profile,
         "sample_index": sample_index,
         "reward": reward,
@@ -2537,7 +2583,13 @@ def main_training_data_report_command(args: argparse.Namespace) -> int:
     data = training_data_quality_report(rows, long_char_threshold=args.long_char_threshold)
     data["path"] = args.input_file
     data["require_system"] = args.require_system
-    data["format_errors"] = training_data_quality_errors(data, require_system=args.require_system)
+    require_generated_metadata = getattr(args, "require_generated_metadata", False)
+    data["require_generated_metadata"] = require_generated_metadata
+    data["format_errors"] = training_data_quality_errors(
+        data,
+        require_system=args.require_system,
+        require_generated_metadata=require_generated_metadata,
+    )
     print_json_or_text(data, args.json, render_training_data_quality_report(data))
     return 1 if data["format_errors"] else 0
 
@@ -2603,6 +2655,13 @@ def run_main_distill_pipeline(
     )
     mix_rows = load_sft_rows_or_raise(mix_path)
     final_report = training_data_quality_report(mix_rows, long_char_threshold=mix_long_char_threshold)
+    final_report["format_errors"] = training_data_quality_errors(
+        final_report,
+        require_system=include_system,
+        require_generated_metadata=True,
+    )
+    if final_report["format_errors"]:
+        raise SetupError("; ".join(final_report["format_errors"]))
 
     data = {
         "pipeline_id": pipeline_id,
@@ -2652,6 +2711,7 @@ def render_main_distill_pipeline(data: dict[str, Any]) -> str:
             f"Mix selected: {data['mix']['selected_rows']}/{data['mix']['input_rows']}",
             f"Final rows: {report['rows']}",
             f"Final buckets: {report['reasoning_bucket_counts']}",
+            f"Final format errors: {len(report.get('format_errors', []))}",
             f"Held-out eval: {data['heldout_eval_command']}",
         ]
     )
@@ -2799,6 +2859,7 @@ def run_main_eval(
         "total_main_calls": total_main_calls,
         "average_main_calls_per_record": safe_ratio(total_main_calls, total),
         "clean_per_main_call": safe_ratio(clean_count, total_main_calls),
+        "clean_cases_per_main_call": safe_ratio(clean_count, total_main_calls),
         "issue_per_main_call": safe_ratio(issue_cases, total_main_calls),
         "total_eval_tokens": total_eval_tokens,
         "eval_tokens_per_clean_case": safe_ratio(total_eval_tokens, clean_count),
@@ -2806,6 +2867,124 @@ def run_main_eval(
         "total_duration_ms": total_duration_ms,
         "cases": case_dicts,
     }
+
+
+DEFAULT_MAIN_EVAL_ABLATION_PROFILES = (
+    "qwen3-8b-local-max",
+    "qwen3-8b-s2t-lite",
+    "qwen3-8b-compute-optimal-lite",
+)
+
+
+def main_eval_ablation_profile_summary(profile: str, data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "profile": profile,
+        "main_model": data["main_model"],
+        "total": data["total"],
+        "clean_count": data["clean_count"],
+        "issue_cases": data["issue_cases"],
+        "issue_rate": data["issue_rate"],
+        "total_main_calls": data["total_main_calls"],
+        "average_main_calls_per_record": data["average_main_calls_per_record"],
+        "clean_cases_per_main_call": data["clean_cases_per_main_call"],
+        "eval_tokens_per_clean_case": data["eval_tokens_per_clean_case"],
+        "ms_per_clean_case": data["ms_per_clean_case"],
+        "total_duration_ms": data["total_duration_ms"],
+        "issue_counts": data["issue_counts"],
+        "local_selection_triggered_count": data["local_selection_triggered_count"],
+        "local_selection_applied_count": data["local_selection_applied_count"],
+        "cases": data["cases"],
+    }
+
+
+def run_main_eval_ablation(
+    client: Any,
+    profile_runtimes: dict[str, RuntimeConfig],
+    records: list[MainAgentRecord],
+    max_length_ratio: float | None = None,
+) -> dict[str, Any]:
+    results = [
+        main_eval_ablation_profile_summary(
+            profile,
+            run_main_eval(
+                client=client,
+                runtime=runtime,
+                records=records,
+                max_length_ratio=max_length_ratio,
+            ),
+        )
+        for profile, runtime in profile_runtimes.items()
+    ]
+    ranking = sorted(
+        results,
+        key=lambda row: (
+            -row["clean_cases_per_main_call"],
+            -row["clean_count"],
+            row["total_main_calls"],
+            row["profile"],
+        ),
+    )
+    return {
+        "profiles": list(profile_runtimes),
+        "records": len(records),
+        "max_length_ratio": max_length_ratio,
+        "best_profile_by_clean_cases_per_main_call": ranking[0]["profile"] if ranking else None,
+        "ranking": [
+            {
+                "profile": row["profile"],
+                "clean_cases_per_main_call": row["clean_cases_per_main_call"],
+                "clean_count": row["clean_count"],
+                "total_main_calls": row["total_main_calls"],
+                "issue_rate": row["issue_rate"],
+            }
+            for row in ranking
+        ],
+        "results": results,
+    }
+
+
+def render_main_eval_ablation(data: dict[str, Any], path: Path) -> str:
+    lines = [
+        f"Main Agent eval ablation: {path}",
+        f"Records: {data['records']}",
+        f"Best clean/main-call: {data['best_profile_by_clean_cases_per_main_call']}",
+        "Profiles:",
+    ]
+    for row in data["ranking"]:
+        lines.append(
+            "- {profile}: clean/main-call={clean_cases_per_main_call:.3f}, "
+            "clean={clean_count}, calls={total_main_calls}, issue_rate={issue_rate:.3f}".format(**row)
+        )
+    return "\n".join(lines)
+
+
+def main_eval_ablation_command(args: argparse.Namespace) -> int:
+    records, errors, total = load_main_agent_records(Path(args.input_file))
+    if errors:
+        result = MainAgentCheck(Path(args.input_file), total, {}, errors)
+        print_json_or_text(result.public_dict(), args.json, render_main_agent_check(result))
+        return 1
+
+    profile_names = args.profile or list(DEFAULT_MAIN_EVAL_ABLATION_PROFILES)
+    runtimes = {name: RUNTIME_PROFILES[name] for name in profile_names}
+    client = OllamaClient(host=args.ollama_host, timeout=args.timeout)
+    for runtime in runtimes.values():
+        client.ensure_ready(runtime.main.model)
+    data = run_main_eval_ablation(
+        client=client,
+        profile_runtimes=runtimes,
+        records=records,
+        max_length_ratio=args.max_length_ratio,
+    )
+    path = write_json_summary(
+        data,
+        Path(args.output_file) if args.output_file else None,
+        Path(args.runs_dir),
+        "main-eval-ablation",
+        "main_eval_ablation_path",
+    )
+    print_json_or_text(data, args.json, render_main_eval_ablation(data, path))
+    return 0
 
 
 
@@ -3263,6 +3442,7 @@ def command_handlers() -> dict[str, Any]:
         "bench": benchmark_command,
         "main-check": main_check_command,
         "main-data-quality-check": main_data_quality_check_command,
+        "main-data-quality-report": main_data_quality_report_command,
         "main-sft-export": main_sft_export_command,
         "main-contrast-export": main_contrast_export_command,
         "main-r1-sample-export": main_r1_sample_export_command,
@@ -3277,6 +3457,7 @@ def command_handlers() -> dict[str, Any]:
         "local-release-gate": local_release_gate_command,
         "idle-run-summary": idle_run_summary_command,
         "main-eval": main_eval_command,
+        "main-eval-ablation": main_eval_ablation_command,
         "architecture-adversarial-eval": architecture_adversarial_eval_command,
         "distill-check": distill_check_command,
         "verifier-tool-gate": verifier_tool_gate_command,

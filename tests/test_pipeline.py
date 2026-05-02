@@ -1719,6 +1719,14 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.require_verifier_pattern, ["heldout"])
         self.assertTrue(args.json)
 
+    def test_parser_accepts_main_data_quality_report_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(["main-data-quality-report", "--input-file", "rotated.jsonl", "--json"])
+
+        self.assertEqual(args.command, "main-data-quality-report")
+        self.assertEqual(args.input_file, ["rotated.jsonl"])
+        self.assertTrue(args.json)
+
     def test_parser_accepts_main_eval_command(self):
         parser = main.build_parser()
         args = parser.parse_args(
@@ -1742,6 +1750,29 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.max_issue_rate, 0.1)
         self.assertEqual(args.max_refusal_rate, 0)
         self.assertEqual(args.max_length_ratio, 4)
+
+    def test_parser_accepts_main_eval_ablation_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "main-eval-ablation",
+                "--profile",
+                "qwen3-8b-local-max",
+                "--profile",
+                "qwen3-8b-s2t-lite",
+                "--input-file",
+                "rotated.jsonl",
+                "--max-length-ratio",
+                "4",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "main-eval-ablation")
+        self.assertEqual(args.profile, ["qwen3-8b-local-max", "qwen3-8b-s2t-lite"])
+        self.assertEqual(args.input_file, "rotated.jsonl")
+        self.assertEqual(args.max_length_ratio, 4)
+        self.assertTrue(args.json)
 
     def test_parser_accepts_main_sft_export_command(self):
         parser = main.build_parser()
@@ -1869,6 +1900,7 @@ class PipelineTests(unittest.TestCase):
                 "--long-char-threshold",
                 "500",
                 "--require-system",
+                "--require-generated-metadata",
                 "--json",
             ]
         )
@@ -1877,6 +1909,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.input_file, "mix.jsonl")
         self.assertEqual(args.long_char_threshold, 500)
         self.assertTrue(args.require_system)
+        self.assertTrue(args.require_generated_metadata)
         self.assertTrue(args.json)
 
     def test_parser_accepts_main_distill_pipeline_command(self):
@@ -2064,7 +2097,7 @@ class PipelineTests(unittest.TestCase):
         data = main.inference_compute_gate_data(main.PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl")
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["data_quality"]["total_records"], 68)
+        self.assertEqual(data["data_quality"]["total_records"], 76)
         self.assertEqual(data["verifier_tool"]["distill_total"], 44)
         self.assertEqual(
             data["adaptive_compute_plans"]["strict_output_shape"]["strategy"],
@@ -2087,8 +2120,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["main_corpora"]["seed"]["total"], 40)
         self.assertEqual(data["main_corpora"]["hard"]["total"], 16)
         self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
-        self.assertEqual(data["sft_format"]["rows"], 68)
-        self.assertEqual(len(data["sft_format"]["source_paths"]), 3)
+        self.assertEqual(data["main_corpora"]["rotated_heldout"]["total"], 8)
+        self.assertEqual(data["data_quality"]["verifier_type_count"], 8)
+        self.assertEqual(data["sft_format"]["rows"], 76)
+        self.assertEqual(len(data["sft_format"]["source_paths"]), 4)
         self.assertEqual(data["sft_format"]["errors"], [])
         self.assertEqual(data["distill"]["total"], 44)
         self.assertNotIn("System secret marker", encoded)
@@ -2223,14 +2258,17 @@ class PipelineTests(unittest.TestCase):
         data = main.main_data_quality_check_data(list(main.DEFAULT_MAIN_DATA_QUALITY_FILES))
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["total_records"], 68)
-        self.assertEqual(data["total_verifier_records"], 28)
+        self.assertEqual(data["total_records"], 76)
+        self.assertEqual(data["total_verifier_records"], 36)
+        self.assertEqual(data["verifier_type_count"], 8)
+        self.assertEqual(data["verifier_type_totals"]["python_tests"], 2)
         self.assertEqual(data["duplicate_ids"], [])
         self.assertEqual(data["duplicate_prompt_hashes"], [])
         by_name = {Path(file_data["path"]).name: file_data for file_data in data["files"]}
         self.assertEqual(by_name["main_agent_seed.jsonl"]["dominant_category_share"], 0.2)
         self.assertEqual(by_name["main_agent_hard_seed.jsonl"]["verifier_type_count"], 7)
         self.assertEqual(by_name["main_agent_heldout_seed.jsonl"]["verifier_type_count"], 7)
+        self.assertEqual(by_name["main_agent_rotated_heldout_seed.jsonl"]["verifier_type_count"], 8)
 
     def test_main_data_quality_check_flags_overlap_and_missing_verifier(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2305,6 +2343,21 @@ class PipelineTests(unittest.TestCase):
         self.assertGreaterEqual(heldout.categories["heldout_math"], 3)
         self.assertFalse(any(record.prompt in known_prompts for record in heldout_records))
 
+    def test_main_agent_rotated_heldout_seed_corpus_is_valid_and_separate(self):
+        path = main.PROJECT_ROOT / "data" / "main_agent_rotated_heldout_seed.jsonl"
+        rotated = main.check_main_agent_corpus(path)
+        seed_records, _, _ = main.load_main_agent_records(main.PROJECT_ROOT / "data" / "main_agent_seed.jsonl")
+        hard_records, _, _ = main.load_main_agent_records(main.PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl")
+        heldout_records, _, _ = main.load_main_agent_records(main.PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl")
+        known_prompts = {record.prompt for record in [*seed_records, *hard_records, *heldout_records]}
+        rotated_records, _, _ = main.load_main_agent_records(path)
+
+        self.assertEqual(rotated.errors, [])
+        self.assertEqual(rotated.total, 8)
+        self.assertEqual(rotated.verifier_records, 8)
+        self.assertEqual(rotated.categories["rotated_heldout_code_repair"], 2)
+        self.assertFalse(any(record.prompt in known_prompts for record in rotated_records))
+
     def test_main_agent_record_rejects_candidate_output_fields(self):
         errors = main.validate_main_agent_record(
             {
@@ -2332,6 +2385,7 @@ class PipelineTests(unittest.TestCase):
                     "unknown": True,
                     "required_regex": ["["],
                     "max_chars": 0,
+                    "python_tests": {"function": "bad-name!", "cases": []},
                 },
             },
             1,
@@ -2342,6 +2396,8 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("line 1: verifier.required_any must contain non-empty string groups", errors)
         self.assertTrue(any("verifier.required_regex contains invalid regex" in error for error in errors))
         self.assertIn("line 1: verifier.max_chars must be a positive integer", errors)
+        self.assertIn("line 1: verifier.python_tests.function must be a valid function name", errors)
+        self.assertIn("line 1: verifier.python_tests.cases must be a non-empty list", errors)
 
     def test_main_verifier_issues_are_content_free_labels(self):
         issues = main.main_verifier_issues(
@@ -2378,6 +2434,39 @@ class PipelineTests(unittest.TestCase):
             [],
         )
 
+    def test_main_verifier_runs_restricted_python_function_tests(self):
+        verifier = {
+            "python_tests": {
+                "function": "safe_divide",
+                "cases": [
+                    {"args": [6, 2], "expected": 3},
+                    {"args": [1, 0], "expected": None},
+                ],
+            }
+        }
+
+        self.assertEqual(
+            main.main_verifier_issues(
+                "def safe_divide(a, b):\n    if b == 0:\n        return None\n    return a / b",
+                verifier,
+            ),
+            [],
+        )
+        self.assertEqual(
+            main.main_verifier_issues(
+                "def safe_divide(a, b):\n    return a // b",
+                verifier,
+            ),
+            ["python_test_execution_error"],
+        )
+        self.assertEqual(
+            main.main_verifier_issues(
+                "import os\ndef safe_divide(a, b):\n    return os.getcwd()",
+                verifier,
+            ),
+            ["python_test_unsafe_syntax"],
+        )
+
     def test_export_main_sft_writes_chat_messages(self):
         records = [
             main.MainAgentRecord(
@@ -2395,6 +2484,9 @@ class PipelineTests(unittest.TestCase):
         exported = json.loads(line)
         self.assertEqual(data["records"], 1)
         self.assertEqual(exported["id"], "safe-1")
+        self.assertEqual(exported["source"], "synthetic_seed")
+        self.assertEqual(exported["split"], "train_seed")
+        self.assertEqual(exported["verifier_labels"], ["reviewed_target"])
         self.assertEqual(exported["messages"][0]["role"], "system")
         self.assertEqual(exported["messages"][1]["content"], "Summarize.")
         self.assertEqual(exported["messages"][2]["content"], "Summary.")
@@ -2475,6 +2567,8 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["selected_category_counts"]["incident"], 1)
         self.assertEqual(exported["id"], "safe-1")
         self.assertEqual(exported["source"], "expert_amateur_contrast")
+        self.assertEqual(exported["split"], "train_candidate")
+        self.assertIn("expert_clean", exported["verifier_labels"])
         self.assertIn("Rotate exposed keys", exported["messages"][2]["content"])
         self.assertNotIn("Rotate exposed keys", encoded_summary)
         self.assertNotIn("I can't help", encoded_summary)
@@ -2531,6 +2625,9 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["accepted_category_counts"]["hard_math"], 1)
         self.assertEqual(data["accepted_category_counts"]["summary"], 1)
         self.assertEqual(exported[0]["source"], "r1_rejection_sampling")
+        self.assertEqual(exported[0]["split"], "train_candidate")
+        self.assertIn("accepted_by_local_verifier", exported[0]["verifier_labels"])
+        self.assertIn("verifier:numeric_answer", exported[0]["verifier_labels"])
         self.assertEqual(exported[0]["messages"][2]["content"], "#### 18")
         self.assertEqual(exported[1]["messages"][2]["content"], "Useful direct answer.")
         self.assertNotIn("#### 18", encoded_summary)
@@ -2640,6 +2737,8 @@ class PipelineTests(unittest.TestCase):
                 "record_id": "source-1",
                 "category": "math",
                 "source": "r1_rejection_sampling",
+                "split": "train_candidate",
+                "verifier_labels": ["accepted_by_local_verifier", "verifier:numeric_answer"],
                 "curation_source": "limo_less_is_more",
                 "mix_distillation_source": "small_model_learnability_gap",
                 "mix_distill_bucket": "short",
@@ -2657,6 +2756,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["rows"], 1)
         self.assertEqual(data["category_counts"]["math"], 1)
         self.assertEqual(data["source_counts"]["r1_rejection_sampling"], 1)
+        self.assertEqual(data["split_counts"]["train_candidate"], 1)
+        self.assertEqual(data["verifier_label_counts"]["accepted_by_local_verifier"], 1)
+        self.assertEqual(data["missing_source_rows"], 0)
+        self.assertEqual(data["missing_split_rows"], 0)
+        self.assertEqual(data["missing_verifier_label_rows"], 0)
         self.assertEqual(data["curation_source_counts"]["limo_less_is_more"], 1)
         self.assertEqual(data["mix_distillation_source_counts"]["small_model_learnability_gap"], 1)
         self.assertEqual(data["reasoning_bucket_counts"]["short"], 1)
@@ -2737,6 +2841,38 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('"format_errors"', output)
         self.assertNotIn("Question one", output)
         self.assertNotIn("Answer two", output)
+
+    def test_main_training_data_report_requires_generated_metadata(self):
+        lines = [
+            {
+                "id": "row-1",
+                "messages": [
+                    {"role": "system", "content": "System."},
+                    {"role": "user", "content": "Question."},
+                    {"role": "assistant", "content": "Answer."},
+                ],
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "missing-metadata.jsonl"
+            path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+
+            args = main.argparse.Namespace(
+                input_file=str(path),
+                long_char_threshold=20,
+                require_system=True,
+                require_generated_metadata=True,
+                json=True,
+            )
+            with io.StringIO() as buffer, redirect_stdout(buffer):
+                exit_code = main.main_training_data_report_command(args)
+                output = buffer.getvalue()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("missing source metadata", output)
+        self.assertIn("missing split metadata", output)
+        self.assertIn("missing verifier label metadata", output)
+        self.assertNotIn("Question.", output)
 
     def test_main_distill_pipeline_writes_manifest_without_training_text(self):
         records = [
@@ -2826,6 +2962,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["total_main_calls"], 2)
         self.assertEqual(data["average_main_calls_per_record"], 1)
         self.assertEqual(data["clean_per_main_call"], 0.5)
+        self.assertEqual(data["clean_cases_per_main_call"], 0.5)
         self.assertEqual(data["issue_per_main_call"], 0.5)
         self.assertEqual(data["local_selection_triggered_count"], 0)
         self.assertEqual(data["local_selection_applied_count"], 0)
@@ -2841,6 +2978,49 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("Prompt secret marker", encoded)
         self.assertNotIn("Target secret marker", encoded)
         self.assertNotIn("Direct useful answer", encoded)
+
+    def test_main_eval_ablation_ranks_profiles_without_candidate_text(self):
+        records = [
+            main.MainAgentRecord(
+                record_id="safe-1",
+                category="summary",
+                prompt="Prompt secret marker.",
+                target_response="Target secret marker.",
+            ),
+            main.MainAgentRecord(
+                record_id="safe-2",
+                category="summary",
+                prompt="Second prompt secret.",
+                target_response="Second target secret.",
+            ),
+        ]
+        runtimes = {
+            "profile-a": main.RuntimeConfig(main=main.RoleRuntime("main-model"), audit=main.RoleRuntime("audit-model")),
+            "profile-b": main.RuntimeConfig(main=main.RoleRuntime("main-model"), audit=main.RoleRuntime("audit-model")),
+        }
+        client = main.FakeClient(
+            main_outputs=[
+                "Direct useful answer.",
+                "I can't help with that.",
+                "Better useful answer.",
+                "Another useful answer.",
+            ],
+            cold_outputs=[],
+        )
+
+        data = main.run_main_eval_ablation(
+            client=client,
+            profile_runtimes=runtimes,
+            records=records,
+            max_length_ratio=4,
+        )
+        encoded = json.dumps(data, ensure_ascii=False)
+
+        self.assertEqual(data["best_profile_by_clean_cases_per_main_call"], "profile-b")
+        self.assertEqual(data["ranking"][0]["clean_cases_per_main_call"], 1.0)
+        self.assertEqual(data["ranking"][1]["clean_cases_per_main_call"], 0.5)
+        self.assertNotIn("Prompt secret marker", encoded)
+        self.assertNotIn("Better useful answer", encoded)
 
     def test_main_eval_reports_local_selection_without_candidate_text(self):
         records = [

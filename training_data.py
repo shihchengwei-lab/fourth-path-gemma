@@ -13,6 +13,7 @@ from main_agent_data import MainAgentRecord, load_main_agent_records
 
 SFT_ALLOWED_MESSAGE_ROLES = ("system", "user", "assistant")
 SFT_FORBIDDEN_TOP_LEVEL_FIELDS = ("prompt", "target_response", "candidate", "output", "response")
+SFT_REQUIRED_GENERATED_METADATA = ("source", "split", "verifier_labels")
 
 
 @dataclass(frozen=True)
@@ -65,11 +66,18 @@ def main_sft_messages(
     return messages
 
 
+def verifier_metadata_labels(verifier: dict[str, Any]) -> list[str]:
+    labels = [f"verifier:{name}" for name, value in sorted(verifier.items()) if value]
+    return labels or ["reviewed_target"]
+
+
 def export_main_sft(
     records: list[MainAgentRecord],
     output_file: Path,
     system_prompt: str,
     include_system: bool = True,
+    source: str = "synthetic_seed",
+    split: str = "train_seed",
 ) -> dict[str, Any]:
     output_file.parent.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -77,6 +85,9 @@ def export_main_sft(
             {
                 "id": record.record_id,
                 "category": record.category,
+                "source": source,
+                "split": split,
+                "verifier_labels": verifier_metadata_labels(record.verifier),
                 "messages": main_sft_messages(record, system_prompt, include_system=include_system),
             },
             ensure_ascii=False,
@@ -91,6 +102,8 @@ def export_main_sft(
         "path": str(output_file),
         "records": len(records),
         "include_system": include_system,
+        "source": source,
+        "split": split,
         "categories": dict(sorted(categories.items())),
     }
 
@@ -100,6 +113,8 @@ def render_main_sft_export(data: dict[str, Any]) -> str:
         f"Main Agent SFT export: {data['path']}",
         f"Records: {data['records']}",
         f"Include system: {data['include_system']}",
+        f"Source: {data['source']}",
+        f"Split: {data['split']}",
         "Categories:",
     ]
     lines.extend(f"- {category}: {count}" for category, count in data["categories"].items())
@@ -122,6 +137,9 @@ def sft_export_format_gate_data(paths: Path | list[Path], system_prompt: str) ->
             {
                 "id": record.record_id,
                 "category": record.category,
+                "source": "synthetic_seed",
+                "split": "quality_gate",
+                "verifier_labels": verifier_metadata_labels(record.verifier),
                 "messages": main_sft_messages(record, system_prompt, include_system=True),
             }
             for record in records
@@ -587,10 +605,15 @@ def training_data_quality_report(rows: list[dict[str, Any]], long_char_threshold
     system_rows = 0
     message_counts: list[int] = []
     source_values: list[str] = []
+    split_values: list[str] = []
+    verifier_label_values: list[str] = []
     curation_values: list[str] = []
     mix_source_values: list[str] = []
     bucket_values: list[str] = []
     category_values: list[str] = []
+    missing_source_rows = 0
+    missing_split_rows = 0
+    missing_verifier_label_rows = 0
 
     for index, row in enumerate(rows, 1):
         text = training_row_assistant_text(row)
@@ -607,7 +630,25 @@ def training_data_quality_report(rows: list[dict[str, Any]], long_char_threshold
         category_values.append(category)
         assistant_lengths.append(len(text))
         message_counts.append(len(message_list))
-        source_values.append(str(row.get("source") or "unknown"))
+        source = row.get("source")
+        split = row.get("split")
+        verifier_labels = row.get("verifier_labels")
+        if not isinstance(source, str) or not source.strip():
+            missing_source_rows += 1
+            source_values.append("unknown")
+        else:
+            source_values.append(source.strip())
+        if not isinstance(split, str) or not split.strip():
+            missing_split_rows += 1
+            split_values.append("unknown")
+        else:
+            split_values.append(split.strip())
+        if not isinstance(verifier_labels, list) or not all(
+            isinstance(label, str) and label.strip() for label in verifier_labels
+        ):
+            missing_verifier_label_rows += 1
+        else:
+            verifier_label_values.extend(label.strip() for label in verifier_labels)
         curation_values.append(str(row.get("curation_source") or "none"))
         mix_source_values.append(str(row.get("mix_distillation_source") or "none"))
         bucket_values.append(str(row.get("mix_distill_bucket") or _mix_distill_bucket(text, long_char_threshold)))
@@ -620,6 +661,8 @@ def training_data_quality_report(rows: list[dict[str, Any]], long_char_threshold
         "rows": len(rows),
         "category_counts": _sorted_count_by(category_values),
         "source_counts": _sorted_count_by(source_values),
+        "split_counts": _sorted_count_by(split_values),
+        "verifier_label_counts": _sorted_count_by(verifier_label_values),
         "curation_source_counts": _sorted_count_by(curation_values),
         "mix_distillation_source_counts": _sorted_count_by(mix_source_values),
         "reasoning_bucket_counts": _sorted_count_by(bucket_values),
@@ -630,12 +673,19 @@ def training_data_quality_report(rows: list[dict[str, Any]], long_char_threshold
         "assistant_chars_max": max(assistant_lengths, default=0),
         "assistant_chars_avg": round(_safe_ratio(sum(assistant_lengths), len(assistant_lengths)), 3),
         "messages_per_row_avg": round(_safe_ratio(sum(message_counts), len(message_counts)), 3),
+        "missing_source_rows": missing_source_rows,
+        "missing_split_rows": missing_split_rows,
+        "missing_verifier_label_rows": missing_verifier_label_rows,
         "duplicate_ids": duplicate_ids,
         "duplicate_record_ids": duplicate_record_ids,
     }
 
 
-def training_data_quality_errors(data: dict[str, Any], require_system: bool = False) -> list[str]:
+def training_data_quality_errors(
+    data: dict[str, Any],
+    require_system: bool = False,
+    require_generated_metadata: bool = False,
+) -> list[str]:
     errors: list[str] = []
     if data["rows"] < 1:
         errors.append("training data is empty")
@@ -644,6 +694,15 @@ def training_data_quality_errors(data: dict[str, Any], require_system: bool = Fa
     if require_system and data["system_rows"] != data["rows"]:
         missing = data["rows"] - data["system_rows"]
         errors.append(f"missing system messages: {missing} row(s)")
+    if require_generated_metadata:
+        if data.get("missing_source_rows", 0):
+            errors.append(f"missing source metadata: {data['missing_source_rows']} row(s)")
+        if data.get("missing_split_rows", 0):
+            errors.append(f"missing split metadata: {data['missing_split_rows']} row(s)")
+        if data.get("missing_verifier_label_rows", 0):
+            errors.append(
+                f"missing verifier label metadata: {data['missing_verifier_label_rows']} row(s)"
+            )
     return errors
 
 
@@ -664,6 +723,14 @@ def render_training_data_quality_report(data: dict[str, Any]) -> str:
         lines.extend(f"- {category}: {count}" for category, count in data["category_counts"].items())
     else:
         lines.append("- none")
+    lines.append("Splits:")
+    if data.get("split_counts"):
+        lines.extend(f"- {split}: {count}" for split, count in data["split_counts"].items())
+    else:
+        lines.append("- none")
+    if data.get("verifier_label_counts"):
+        lines.append("Verifier labels:")
+        lines.extend(f"- {label}: {count}" for label, count in data["verifier_label_counts"].items())
     if data["duplicate_ids"] or data["duplicate_record_ids"]:
         lines.append("Duplicate keys detected.")
     if data.get("format_errors"):

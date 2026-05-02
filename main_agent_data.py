@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -80,6 +81,7 @@ def validate_main_verifier(verifier: dict[str, Any], prefix: str) -> list[str]:
         "forbidden_regex",
         "numeric_answer",
         "max_chars",
+        "python_tests",
     }
     for field_name in sorted(set(verifier) - allowed):
         errors.append(f"{prefix}: verifier.{field_name} is not supported")
@@ -115,6 +117,34 @@ def validate_main_verifier(verifier: dict[str, Any], prefix: str) -> list[str]:
         max_chars = verifier.get("max_chars")
         if not isinstance(max_chars, int) or max_chars < 1:
             errors.append(f"{prefix}: verifier.max_chars must be a positive integer")
+    if "python_tests" in verifier:
+        errors.extend(validate_python_tests_spec(verifier.get("python_tests"), prefix))
+    return errors
+
+
+def validate_python_tests_spec(value: Any, prefix: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(value, dict):
+        return [f"{prefix}: verifier.python_tests must be an object"]
+    function_name = value.get("function")
+    if not isinstance(function_name, str) or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", function_name):
+        errors.append(f"{prefix}: verifier.python_tests.function must be a valid function name")
+    cases = value.get("cases")
+    if not isinstance(cases, list) or not cases:
+        errors.append(f"{prefix}: verifier.python_tests.cases must be a non-empty list")
+        return errors
+    for case_index, case in enumerate(cases, 1):
+        if not isinstance(case, dict):
+            errors.append(f"{prefix}: verifier.python_tests.cases[{case_index}] must be an object")
+            continue
+        args = case.get("args", [])
+        kwargs = case.get("kwargs", {})
+        if not isinstance(args, list):
+            errors.append(f"{prefix}: verifier.python_tests.cases[{case_index}].args must be a list")
+        if not isinstance(kwargs, dict):
+            errors.append(f"{prefix}: verifier.python_tests.cases[{case_index}].kwargs must be an object")
+        if "expected" not in case:
+            errors.append(f"{prefix}: verifier.python_tests.cases[{case_index}].expected is required")
     return errors
 
 
@@ -224,6 +254,7 @@ def main_data_quality_check_data(
     duplicate_prompt_hashes: list[str] = []
     total_records = 0
     total_verifier_records = 0
+    verifier_type_totals: Counter[str] = Counter()
 
     if not 0 < max_category_share <= 1:
         errors.append("--max-category-share must be greater than 0 and at most 1")
@@ -245,6 +276,7 @@ def main_data_quality_check_data(
             for verifier_name, verifier_value in record.verifier.items()
             if verifier_value
         )
+        verifier_type_totals.update(verifier_type_counts)
         requires_verifier = any(pattern in path.name for pattern in require_verifier_patterns)
         all_missing_verifier_ids = [record.record_id for record in records if not record.verifier]
         missing_verifier_ids = all_missing_verifier_ids if requires_verifier else []
@@ -319,6 +351,8 @@ def main_data_quality_check_data(
         "total_records": total_records,
         "total_verifier_records": total_verifier_records,
         "overall_verifier_rate": round(safe_ratio(total_verifier_records, total_records), 3),
+        "verifier_type_totals": dict(sorted(verifier_type_totals.items())),
+        "verifier_type_count": len(verifier_type_totals),
         "duplicate_ids": sorted(set(duplicate_ids)),
         "duplicate_prompt_hashes": sorted(set(duplicate_prompt_hashes)),
         "require_verifier_patterns": list(require_verifier_patterns),
@@ -335,6 +369,7 @@ def render_main_data_quality_check(data: dict[str, Any]) -> str:
         f"Main Agent data quality: {status}",
         f"Records: {data['total_records']}",
         f"Verifier records: {data['total_verifier_records']} ({data['overall_verifier_rate']:.3f})",
+        f"Verifier types: {data['verifier_type_count']}",
         "Files:",
     ]
     for file_data in data["files"]:
@@ -346,6 +381,9 @@ def render_main_data_quality_check(data: dict[str, Any]) -> str:
         )
     if data["duplicate_ids"] or data["duplicate_prompt_hashes"]:
         lines.append("Duplicates detected.")
+    if data["verifier_type_totals"]:
+        lines.append("Verifier type coverage:")
+        lines.extend(f"- {name}: {count}" for name, count in data["verifier_type_totals"].items())
     if data["errors"]:
         lines.extend(["", "Errors:"])
         lines.extend(f"- {error}" for error in data["errors"])
@@ -368,6 +406,118 @@ def extract_numeric_tokens(text: str) -> set[str]:
     for match in re.finditer(r"(?<![\w.])-?\d+(?:\.\d+)?(?!\w)", text):
         values.add(normalize_numeric_token(match.group(0)))
     return values
+
+
+PYTHON_TEST_ALLOWED_BUILTINS = {
+    "abs": abs,
+    "len": len,
+    "max": max,
+    "min": min,
+    "round": round,
+    "sum": sum,
+}
+PYTHON_TEST_ALLOWED_METHODS = {"strip", "lower", "upper"}
+PYTHON_TEST_ALLOWED_NODES = (
+    ast.Module,
+    ast.FunctionDef,
+    ast.arguments,
+    ast.arg,
+    ast.Return,
+    ast.If,
+    ast.Compare,
+    ast.Name,
+    ast.Load,
+    ast.Store,
+    ast.Constant,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.BoolOp,
+    ast.IfExp,
+    ast.Call,
+    ast.Attribute,
+    ast.List,
+    ast.Tuple,
+    ast.Dict,
+    ast.Subscript,
+    ast.Slice,
+    ast.ListComp,
+    ast.comprehension,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.UAdd,
+    ast.USub,
+    ast.Not,
+    ast.And,
+    ast.Or,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.Is,
+    ast.IsNot,
+)
+
+
+def python_test_static_issue(tree: ast.AST) -> str | None:
+    for node in ast.walk(tree):
+        if not isinstance(node, PYTHON_TEST_ALLOWED_NODES):
+            return "python_test_unsafe_syntax"
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in PYTHON_TEST_ALLOWED_BUILTINS:
+                continue
+            if isinstance(func, ast.Attribute) and func.attr in PYTHON_TEST_ALLOWED_METHODS:
+                continue
+            return "python_test_unsafe_call"
+    top_level = [node for node in tree.body if not isinstance(node, ast.Expr)]
+    if len(top_level) != 1 or not isinstance(top_level[0], ast.FunctionDef):
+        return "python_test_requires_single_function"
+    return None
+
+
+def python_function_test_issue(text: str, spec: dict[str, Any]) -> str | None:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return "python_test_parse_error"
+
+    static_issue = python_test_static_issue(tree)
+    if static_issue:
+        return static_issue
+
+    function_name = str(spec.get("function") or "")
+    namespace: dict[str, Any] = {}
+    globals_dict = {"__builtins__": {}, **PYTHON_TEST_ALLOWED_BUILTINS}
+    try:
+        exec(compile(tree, "<main-agent-verifier>", "exec"), globals_dict, namespace)
+    except Exception:
+        return "python_test_execution_error"
+
+    function = namespace.get(function_name)
+    if not callable(function):
+        return "python_test_missing_function"
+
+    cases = spec.get("cases") if isinstance(spec.get("cases"), list) else []
+    for case in cases:
+        if not isinstance(case, dict):
+            return "python_test_invalid_case"
+        args = case.get("args", [])
+        kwargs = case.get("kwargs", {})
+        if not isinstance(args, list) or not isinstance(kwargs, dict):
+            return "python_test_invalid_case"
+        try:
+            result = function(*args, **kwargs)
+        except Exception:
+            return "python_test_execution_error"
+        if result != case.get("expected"):
+            return "python_test_failed"
+    return None
 
 
 def main_verifier_issues(text: str, verifier: dict[str, Any]) -> list[str]:
@@ -400,4 +550,9 @@ def main_verifier_issues(text: str, verifier: dict[str, Any]) -> list[str]:
     max_chars = verifier.get("max_chars")
     if isinstance(max_chars, int) and len(text) > max_chars:
         issues.append("verifier_max_chars_exceeded")
+    python_tests = verifier.get("python_tests")
+    if isinstance(python_tests, dict):
+        python_issue = python_function_test_issue(text, python_tests)
+        if python_issue:
+            issues.append(python_issue)
     return list(dict.fromkeys(issues))

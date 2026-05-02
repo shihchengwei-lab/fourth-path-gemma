@@ -310,6 +310,11 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
         min_total=12,
         min_category=2,
     )
+    rotated_heldout_check = apply_main_agent_requirements(
+        check_main_agent_corpus(config.project_root / "data" / "main_agent_rotated_heldout_seed.jsonl"),
+        min_total=8,
+        min_category=2,
+    )
     data_quality = config.main_data_quality_check_data(list(config.main_data_quality_files))
     sft_format = config.sft_export_format_gate_data(list(config.main_data_quality_files))
     distill = apply_distill_balance_requirements(
@@ -327,6 +332,7 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
     errors.extend(prefixed_errors("main_seed", seed_check.errors))
     errors.extend(prefixed_errors("main_hard", hard_check.errors))
     errors.extend(prefixed_errors("main_heldout", heldout_check.errors))
+    errors.extend(prefixed_errors("main_rotated_heldout", rotated_heldout_check.errors))
     errors.extend(prefixed_errors("data_quality", data_quality["errors"]))
     errors.extend(prefixed_errors("sft_format", sft_format["errors"]))
     errors.extend(prefixed_errors("distill", distill.errors))
@@ -344,11 +350,14 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
             "seed": seed_check.public_dict(),
             "hard": hard_check.public_dict(),
             "heldout": heldout_check.public_dict(),
+            "rotated_heldout": rotated_heldout_check.public_dict(),
         },
         "data_quality": {
             "total_records": data_quality["total_records"],
             "total_verifier_records": data_quality["total_verifier_records"],
             "overall_verifier_rate": data_quality["overall_verifier_rate"],
+            "verifier_type_totals": data_quality.get("verifier_type_totals", {}),
+            "verifier_type_count": data_quality.get("verifier_type_count", 0),
             "errors": data_quality["errors"],
         },
         "sft_format": sft_format,
@@ -374,15 +383,16 @@ def render_local_release_gate(data: dict[str, Any]) -> str:
             action=data["architecture_adversarial"]["layers"].get("action", 0),
         ),
         (
-            "Main corpora: seed={seed}, hard={hard}, heldout={heldout}"
+            "Main corpora: seed={seed}, hard={hard}, heldout={heldout}, rotated={rotated}"
         ).format(
             seed=data["main_corpora"]["seed"]["total"],
             hard=data["main_corpora"]["hard"]["total"],
             heldout=data["main_corpora"]["heldout"]["total"],
+            rotated=data["main_corpora"]["rotated_heldout"]["total"],
         ),
         (
             "Data quality: records={total_records}, verifier={total_verifier_records} "
-            "({overall_verifier_rate:.3f})"
+            "({overall_verifier_rate:.3f}), types={verifier_type_count}"
         ).format(**data["data_quality"]),
         f"SFT format rows: {data['sft_format']['rows']}, system={data['sft_format']['system_rows']}",
         (

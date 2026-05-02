@@ -148,6 +148,15 @@ Do these before another architecture refactor round:
 7. Run an ablation: base profile vs local selector vs adaptive compute on the
    fresh held-out set.
 
+Local implementation hooks now exist for this backlog:
+
+- `main-data-quality-report`
+- `data/main_agent_rotated_heldout_seed.jsonl`
+- generated-row `source`, `split`, and `verifier_labels` metadata checks
+- verifier coverage totals, including restricted `python_tests`
+- `clean_cases_per_main_call`
+- `main-eval-ablation`
+
 ## Do Not Do Yet
 
 - Do not start KV-cache integration.

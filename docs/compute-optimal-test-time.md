@@ -74,6 +74,7 @@ Compare this profile against `qwen3-8b-s2t-lite`, not against a leaderboard:
 ```powershell
 python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
 python main.py main-eval --profile qwen3-8b-compute-optimal-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
+python main.py main-eval-ablation --input-file data\main_agent_rotated_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4
 python main.py bench --profile qwen3-8b-compute-optimal-lite --warmup --json --timeout 900
 ```
 
@@ -89,6 +90,27 @@ Track:
 If the adaptive profile spends more calls but does not improve held-out tasks,
 it should stay experimental. The paper's lesson is adaptive allocation, not
 unbounded compute.
+
+## Latest Rotated Held-Out Ablation
+
+Command:
+
+```powershell
+python main.py main-eval-ablation --input-file data\main_agent_rotated_heldout_seed.jsonl --output-file runs\main-eval-ablation-rotated-20260502.json --json --timeout 900 --max-length-ratio 4
+```
+
+Result on 2026-05-02:
+
+| Profile | Clean | Main calls | Clean/main-call | Issue rate |
+| --- | ---: | ---: | ---: | ---: |
+| `qwen3-8b-local-max` | 2/8 | 8 | 0.250 | 0.750 |
+| `qwen3-8b-s2t-lite` | 2/8 | 8 | 0.250 | 0.750 |
+| `qwen3-8b-compute-optimal-lite` | 2/8 | 12 | 0.167 | 0.750 |
+
+The adaptive profile did not improve this fresh gate and spent more calls. Keep
+it experimental. The failure labels were concentrated in required-any,
+required-pattern, and one restricted Python test failure, so the next useful
+work is better data/verifier targeting rather than more runtime compute.
 
 ## Source
 

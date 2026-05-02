@@ -46,7 +46,7 @@ def render_main_eval(data: dict[str, Any], path: Path) -> str:
         f"Local selector triggered: {data['local_selection_triggered_count']}",
         f"Local selector applied: {data['local_selection_applied_count']}",
         f"Total main calls: {data['total_main_calls']}",
-        f"Clean/main-call: {data['clean_per_main_call']:.3f}",
+        f"Clean cases/main-call: {data.get('clean_cases_per_main_call', data['clean_per_main_call']):.3f}",
         f"Eval tokens/clean: {data['eval_tokens_per_clean_case']:.1f}",
         f"Total ms: {data['total_duration_ms']}",
         "",
