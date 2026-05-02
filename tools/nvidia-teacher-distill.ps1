@@ -8,6 +8,7 @@ param(
     [double]$RequestsPerMinute = 36,
     [int]$Timeout = 180,
     [string[]]$Model = @(),
+    [switch]$PersistUserKey,
     [switch]$SkipReport,
     [switch]$DryRun
 )
@@ -19,11 +20,29 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 Set-Location $repoRoot
 
 if (-not $env:NVIDIA_BASE_URL) {
-    $env:NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+    $storedBaseUrl = [Environment]::GetEnvironmentVariable("NVIDIA_BASE_URL", "User")
+    if ($storedBaseUrl) {
+        $env:NVIDIA_BASE_URL = $storedBaseUrl
+    }
+    else {
+        $env:NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+    }
+}
+
+if (-not $env:NVIDIA_API_KEY) {
+    $storedKey = [Environment]::GetEnvironmentVariable("NVIDIA_API_KEY", "User")
+    if ($storedKey) {
+        $env:NVIDIA_API_KEY = $storedKey
+        Write-Host "Loaded NVIDIA_API_KEY from Windows user environment."
+    }
 }
 
 if (-not $DryRun -and -not $env:NVIDIA_API_KEY) {
-    $secureKey = Read-Host "Paste NVIDIA API key for this run" -AsSecureString
+    $prompt = "Paste NVIDIA API key for this run"
+    if ($PersistUserKey) {
+        $prompt = "Paste NVIDIA API key to store in Windows user environment"
+    }
+    $secureKey = Read-Host $prompt -AsSecureString
     if ($secureKey.Length -eq 0) {
         throw "NVIDIA API key is empty."
     }
@@ -35,6 +54,12 @@ if (-not $DryRun -and -not $env:NVIDIA_API_KEY) {
     finally {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPtr)
     }
+}
+
+if (-not $DryRun -and $PersistUserKey) {
+    [Environment]::SetEnvironmentVariable("NVIDIA_API_KEY", $env:NVIDIA_API_KEY, "User")
+    [Environment]::SetEnvironmentVariable("NVIDIA_BASE_URL", $env:NVIDIA_BASE_URL, "User")
+    Write-Host "Stored NVIDIA_API_KEY and NVIDIA_BASE_URL in Windows user environment."
 }
 
 $exportArgs = @(

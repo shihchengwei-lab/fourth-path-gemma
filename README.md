@@ -438,6 +438,13 @@ report:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1
 ```
 
+To let future Codex shells call NVIDIA directly, persist the key to the Windows
+user environment. This does not write the key to the repo:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1 -PersistUserKey -Model minimaxai/minimax-m2.7 -LimitRecords 1 -Timeout 180
+```
+
 For a one-request smoke test before a broader batch:
 
 ```powershell

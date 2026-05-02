@@ -11,3 +11,8 @@ tests/__pycache__/
 downloads/
 .venv-bench/
 HANDOVER.md
+.env
+.env.*
+*.secret
+*.secrets
+secrets/
