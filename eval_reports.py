@@ -1,9 +1,31 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from output_utils import write_json_summary
+
+
+@dataclass(frozen=True)
+class MainEvalCase:
+    record_id: str
+    category: str
+    clean: bool
+    issues: list[str]
+    duration_ms: int
+    main_call_count: int
+    output_chars: int
+    target_chars: int
+    length_ratio: float
+    prompt_tokens: int
+    eval_tokens: int
+    prompt_eval_ms: int
+    eval_ms: int
+    load_ms: int
+    local_selection_triggered: bool = False
+    local_selection_applied: bool = False
+    local_selection_reasons: tuple[str, ...] = ()
 
 
 def main_eval_case_dict(case: MainEvalCase) -> dict[str, Any]:
@@ -64,6 +86,20 @@ def render_main_eval(data: dict[str, Any], path: Path) -> str:
     if data.get("gate_errors"):
         lines.extend(["", "Gate errors:"])
         lines.extend(f"- {error}" for error in data["gate_errors"])
+    return "\n".join(lines)
+
+def render_main_eval_ablation(data: dict[str, Any], path: Path) -> str:
+    lines = [
+        f"Main Agent eval ablation: {path}",
+        f"Records: {data['records']}",
+        f"Best clean/main-call: {data['best_profile_by_clean_cases_per_main_call']}",
+        "Profiles:",
+    ]
+    for row in data["ranking"]:
+        lines.append(
+            "- {profile}: clean/main-call={clean_cases_per_main_call:.3f}, "
+            "clean={clean_count}, calls={total_main_calls}, issue_rate={issue_rate:.3f}".format(**row)
+        )
     return "\n".join(lines)
 
 def main_eval_gate_errors(

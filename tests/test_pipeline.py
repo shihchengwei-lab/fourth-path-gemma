@@ -2491,6 +2491,24 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(exported["messages"][1]["content"], "Summarize.")
         self.assertEqual(exported["messages"][2]["content"], "Summary.")
 
+    def test_main_sft_source_split_inference_keeps_heldout_out_of_training(self):
+        self.assertEqual(
+            main.infer_main_sft_source_split(Path("data/main_agent_seed.jsonl")),
+            ("synthetic_seed", "train_seed"),
+        )
+        self.assertEqual(
+            main.infer_main_sft_source_split(Path("data/main_agent_hard_seed.jsonl")),
+            ("synthetic_hard", "train_hard"),
+        )
+        self.assertEqual(
+            main.infer_main_sft_source_split(Path("data/main_agent_heldout_seed.jsonl")),
+            ("synthetic_heldout", "heldout_eval"),
+        )
+        self.assertEqual(
+            main.infer_main_sft_source_split(Path("data/main_agent_rotated_heldout_seed.jsonl")),
+            ("synthetic_rotated_heldout", "heldout_eval"),
+        )
+
     def test_sft_format_gate_catches_duplicate_ids_across_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             first = Path(tmp) / "main_agent_seed.jsonl"

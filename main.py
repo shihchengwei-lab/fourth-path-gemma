@@ -69,15 +69,16 @@ from distill_data import (
     validate_distill_record,
 )
 from eval_reports import (
+    MainEvalCase,
     architecture_adversarial_eval_case_dict,
     architecture_adversarial_eval_gate_errors,
     distill_eval_case_dict,
     distill_eval_gate_errors,
-    main_eval_case_dict,
     main_eval_gate_errors,
     render_architecture_adversarial_eval,
     render_distill_eval,
     render_main_eval,
+    render_main_eval_ablation,
     write_architecture_adversarial_eval_summary,
     write_distill_eval_summary,
     write_main_eval_summary,
@@ -114,6 +115,12 @@ from main_agent_data import (
     validate_main_agent_record,
     validate_main_verifier,
 )
+from main_eval import (
+    DEFAULT_MAIN_EVAL_ABLATION_PROFILES,
+    main_eval_case_from_generation,
+    run_main_eval_ablation_core,
+    run_main_eval_core,
+)
 from output_utils import elapsed_ms, new_run_id, print_json_or_text, write_json_summary
 from runtime_config import (
     DEFAULT_MAX_ATTEMPTS as MAX_ATTEMPTS,
@@ -138,6 +145,7 @@ from training_data import (
     MainLimoCuratedCase,
     MainMixDistillCase,
     export_main_sft as export_main_sft_core,
+    infer_main_sft_source_split,
     load_sft_jsonl_rows,
     limo_keyword_count,
     limo_template_features,
@@ -491,27 +499,6 @@ class ArchitectureAdversarialEvalCase:
     prompt_eval_ms: int
     eval_ms: int
     load_ms: int
-
-
-@dataclass(frozen=True)
-class MainEvalCase:
-    record_id: str
-    category: str
-    clean: bool
-    issues: list[str]
-    duration_ms: int
-    main_call_count: int
-    output_chars: int
-    target_chars: int
-    length_ratio: float
-    prompt_tokens: int
-    eval_tokens: int
-    prompt_eval_ms: int
-    eval_ms: int
-    load_ms: int
-    local_selection_triggered: bool = False
-    local_selection_applied: bool = False
-    local_selection_reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1944,30 +1931,26 @@ def main_check_command(args: argparse.Namespace) -> int:
     return 1 if result.errors else 0
 
 
-def main_data_quality_check_command(args: argparse.Namespace) -> int:
+def main_data_quality_from_args(args: argparse.Namespace) -> dict[str, Any]:
     paths = [Path(path) for path in args.input_file] if args.input_file else list(DEFAULT_MAIN_DATA_QUALITY_FILES)
     patterns = tuple(args.require_verifier_pattern or ("hard", "heldout"))
-    data = main_data_quality_check_data(
+    return main_data_quality_check_data(
         paths,
         require_verifier_patterns=patterns,
         max_category_share=args.max_category_share,
         min_records_for_category_balance=args.min_records_for_category_balance,
         min_verifier_types=args.min_verifier_types,
     )
+
+
+def main_data_quality_check_command(args: argparse.Namespace) -> int:
+    data = main_data_quality_from_args(args)
     print_json_or_text(data, args.json, render_main_data_quality_check(data))
     return 1 if data["errors"] else 0
 
 
 def main_data_quality_report_command(args: argparse.Namespace) -> int:
-    paths = [Path(path) for path in args.input_file] if args.input_file else list(DEFAULT_MAIN_DATA_QUALITY_FILES)
-    patterns = tuple(args.require_verifier_pattern or ("hard", "heldout"))
-    data = main_data_quality_check_data(
-        paths,
-        require_verifier_patterns=patterns,
-        max_category_share=args.max_category_share,
-        min_records_for_category_balance=args.min_records_for_category_balance,
-        min_verifier_types=args.min_verifier_types,
-    )
+    data = main_data_quality_from_args(args)
     print_json_or_text(data, args.json, render_main_data_quality_check(data))
     return 0
 
@@ -1995,17 +1978,6 @@ def export_main_sft(
         source=source,
         split=split,
     )
-
-
-def infer_main_sft_source_split(input_file: Path) -> tuple[str, str]:
-    name = input_file.name.lower()
-    if "rotated_heldout" in name:
-        return "synthetic_rotated_heldout", "heldout_eval"
-    if "heldout" in name:
-        return "synthetic_heldout", "heldout_eval"
-    if "hard" in name:
-        return "synthetic_hard", "train_hard"
-    return "synthetic_seed", "train_seed"
 
 
 def main_sft_export_command(args: argparse.Namespace) -> int:
@@ -2750,34 +2722,20 @@ def main_distill_pipeline_command(args: argparse.Namespace) -> int:
 
 
 
-def main_eval_case_from_generation(
+def generate_main_for_eval(
+    client: Any,
+    runtime: RuntimeConfig,
     record: MainAgentRecord,
-    generation: CandidateGeneration,
-    issues: list[str],
-    duration_ms: int,
-) -> MainEvalCase:
-    stats = generation.stats
-    target_chars = max(1, len(record.target_response))
-    output_chars = len(generation.text)
-    selection = generation.local_selection
-    return MainEvalCase(
-        record_id=record.record_id,
-        category=record.category,
-        clean=not issues,
-        issues=issues,
-        duration_ms=duration_ms,
-        main_call_count=generation.call_count,
-        output_chars=output_chars,
-        target_chars=target_chars,
-        length_ratio=output_chars / target_chars,
-        prompt_tokens=stats.get("prompt_tokens", 0),
-        eval_tokens=stats.get("eval_tokens", 0),
-        prompt_eval_ms=stats.get("prompt_eval_ms", 0),
-        eval_ms=stats.get("eval_ms", 0),
-        load_ms=stats.get("load_ms", 0),
-        local_selection_triggered=selection.triggered if selection else False,
-        local_selection_applied=selection.applied if selection else False,
-        local_selection_reasons=selection.reasons if selection else (),
+) -> CandidateGeneration:
+    return generate_candidate_result(
+        client,
+        runtime.main,
+        record.prompt,
+        None,
+        quality_refine_passes=runtime.quality_refine_passes,
+        search_candidates=runtime.search_candidates,
+        local_select=runtime.local_select,
+        adaptive_compute=runtime.adaptive_compute,
     )
 
 
@@ -2787,114 +2745,15 @@ def run_main_eval(
     records: list[MainAgentRecord],
     max_length_ratio: float | None = None,
 ) -> dict[str, Any]:
-    cases: list[MainEvalCase] = []
-    started = time.perf_counter()
-    for record in records:
-        case_started = time.perf_counter()
-        generation = generate_candidate_result(
-            client,
-            runtime.main,
-            record.prompt,
-            None,
-            quality_refine_passes=runtime.quality_refine_passes,
-            search_candidates=runtime.search_candidates,
-            local_select=runtime.local_select,
-            adaptive_compute=runtime.adaptive_compute,
-        )
-        issues = main_candidate_issues(
-            generation.text,
-            target_response=record.target_response,
-            max_length_ratio=max_length_ratio,
-        )
-        issues.extend(main_verifier_issues(generation.text, record.verifier))
-        issues = list(dict.fromkeys(issues))
-        cases.append(
-            main_eval_case_from_generation(
-                record,
-                generation,
-                issues,
-                elapsed_ms(case_started),
-            )
-        )
-
-    issue_counts = sorted_count_by(issue for case in cases for issue in case.issues)
-    category_issue_counts = sorted_count_by(case.category for case in cases if case.issues)
-    local_selection_reason_counts = sorted_count_by(
-        reason for case in cases for reason in case.local_selection_reasons
+    return run_main_eval_core(
+        client=client,
+        runtime=runtime,
+        records=records,
+        generate_candidate=generate_main_for_eval,
+        candidate_issues=main_candidate_issues,
+        verifier_issues=main_verifier_issues,
+        max_length_ratio=max_length_ratio,
     )
-
-    total = len(cases)
-    issue_cases = sum(not case.clean for case in cases)
-    clean_count = total - issue_cases
-    refusal_like_count = issue_counts.get("refusal_like", 0)
-    overlong_count = issue_counts.get("overlong_candidate", 0)
-    total_main_calls = sum(case.main_call_count for case in cases)
-    total_eval_tokens = sum(case.eval_tokens for case in cases)
-    total_duration_ms = elapsed_ms(started)
-    case_dicts = [main_eval_case_dict(case) for case in cases]
-    return {
-        "main_model": runtime.main.model,
-        "main_options": runtime.main.options.payload(),
-        "main_no_think": runtime.main.no_think,
-        "quality_refine_passes": runtime.quality_refine_passes,
-        "search_candidates": runtime.search_candidates,
-        "local_select": runtime.local_select,
-        "adaptive_compute": runtime.adaptive_compute,
-        "total": total,
-        "clean_count": clean_count,
-        "issue_cases": issue_cases,
-        "issue_rate": issue_cases / total if total else 0,
-        "refusal_like_count": refusal_like_count,
-        "refusal_like_rate": refusal_like_count / total if total else 0,
-        "overlong_count": overlong_count,
-        "overlong_rate": overlong_count / total if total else 0,
-        "average_length_ratio": (
-            sum(case.length_ratio for case in cases) / total if total else 0
-        ),
-        "issue_counts": issue_counts,
-        "category_issue_counts": category_issue_counts,
-        "local_selection_triggered_count": sum(case.local_selection_triggered for case in cases),
-        "local_selection_applied_count": sum(case.local_selection_applied for case in cases),
-        "local_selection_reason_counts": local_selection_reason_counts,
-        "total_main_calls": total_main_calls,
-        "average_main_calls_per_record": safe_ratio(total_main_calls, total),
-        "clean_per_main_call": safe_ratio(clean_count, total_main_calls),
-        "clean_cases_per_main_call": safe_ratio(clean_count, total_main_calls),
-        "issue_per_main_call": safe_ratio(issue_cases, total_main_calls),
-        "total_eval_tokens": total_eval_tokens,
-        "eval_tokens_per_clean_case": safe_ratio(total_eval_tokens, clean_count),
-        "ms_per_clean_case": safe_ratio(total_duration_ms, clean_count),
-        "total_duration_ms": total_duration_ms,
-        "cases": case_dicts,
-    }
-
-
-DEFAULT_MAIN_EVAL_ABLATION_PROFILES = (
-    "qwen3-8b-local-max",
-    "qwen3-8b-s2t-lite",
-    "qwen3-8b-compute-optimal-lite",
-)
-
-
-def main_eval_ablation_profile_summary(profile: str, data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "profile": profile,
-        "main_model": data["main_model"],
-        "total": data["total"],
-        "clean_count": data["clean_count"],
-        "issue_cases": data["issue_cases"],
-        "issue_rate": data["issue_rate"],
-        "total_main_calls": data["total_main_calls"],
-        "average_main_calls_per_record": data["average_main_calls_per_record"],
-        "clean_cases_per_main_call": data["clean_cases_per_main_call"],
-        "eval_tokens_per_clean_case": data["eval_tokens_per_clean_case"],
-        "ms_per_clean_case": data["ms_per_clean_case"],
-        "total_duration_ms": data["total_duration_ms"],
-        "issue_counts": data["issue_counts"],
-        "local_selection_triggered_count": data["local_selection_triggered_count"],
-        "local_selection_applied_count": data["local_selection_applied_count"],
-        "cases": data["cases"],
-    }
 
 
 def run_main_eval_ablation(
@@ -2903,59 +2762,18 @@ def run_main_eval_ablation(
     records: list[MainAgentRecord],
     max_length_ratio: float | None = None,
 ) -> dict[str, Any]:
-    results = [
-        main_eval_ablation_profile_summary(
-            profile,
-            run_main_eval(
-                client=client,
-                runtime=runtime,
-                records=records,
-                max_length_ratio=max_length_ratio,
-            ),
-        )
-        for profile, runtime in profile_runtimes.items()
-    ]
-    ranking = sorted(
-        results,
-        key=lambda row: (
-            -row["clean_cases_per_main_call"],
-            -row["clean_count"],
-            row["total_main_calls"],
-            row["profile"],
+    return run_main_eval_ablation_core(
+        client=client,
+        profile_runtimes=profile_runtimes,
+        records=records,
+        eval_runner=lambda eval_client, runtime, eval_records, ratio: run_main_eval(
+            client=eval_client,
+            runtime=runtime,
+            records=eval_records,
+            max_length_ratio=ratio,
         ),
+        max_length_ratio=max_length_ratio,
     )
-    return {
-        "profiles": list(profile_runtimes),
-        "records": len(records),
-        "max_length_ratio": max_length_ratio,
-        "best_profile_by_clean_cases_per_main_call": ranking[0]["profile"] if ranking else None,
-        "ranking": [
-            {
-                "profile": row["profile"],
-                "clean_cases_per_main_call": row["clean_cases_per_main_call"],
-                "clean_count": row["clean_count"],
-                "total_main_calls": row["total_main_calls"],
-                "issue_rate": row["issue_rate"],
-            }
-            for row in ranking
-        ],
-        "results": results,
-    }
-
-
-def render_main_eval_ablation(data: dict[str, Any], path: Path) -> str:
-    lines = [
-        f"Main Agent eval ablation: {path}",
-        f"Records: {data['records']}",
-        f"Best clean/main-call: {data['best_profile_by_clean_cases_per_main_call']}",
-        "Profiles:",
-    ]
-    for row in data["ranking"]:
-        lines.append(
-            "- {profile}: clean/main-call={clean_cases_per_main_call:.3f}, "
-            "clean={clean_count}, calls={total_main_calls}, issue_rate={issue_rate:.3f}".format(**row)
-        )
-    return "\n".join(lines)
 
 
 def main_eval_ablation_command(args: argparse.Namespace) -> int:

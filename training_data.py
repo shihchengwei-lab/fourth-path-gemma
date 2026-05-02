@@ -71,6 +71,17 @@ def verifier_metadata_labels(verifier: dict[str, Any]) -> list[str]:
     return labels or ["reviewed_target"]
 
 
+def infer_main_sft_source_split(input_file: Path) -> tuple[str, str]:
+    name = input_file.name.lower()
+    if "rotated_heldout" in name:
+        return "synthetic_rotated_heldout", "heldout_eval"
+    if "heldout" in name:
+        return "synthetic_heldout", "heldout_eval"
+    if "hard" in name:
+        return "synthetic_hard", "train_hard"
+    return "synthetic_seed", "train_seed"
+
+
 def export_main_sft(
     records: list[MainAgentRecord],
     output_file: Path,
