@@ -430,6 +430,14 @@ python main.py main-nvidia-teacher-export --input-file data\main_agent_hard_seed
 python main.py main-training-data-report --input-file runs\main-agent-nvidia-teacher.jsonl --require-system --require-generated-metadata --json
 ```
 
+If manual `$env:` setup is error-prone, use the helper. It prompts for the key
+with hidden local input, sets it only for that run, then executes the export and
+report:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1
+```
+
 The default NVIDIA teacher order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3
 Super 120B-A12B, GPT-OSS 120B, then Qwen3-Next 80B-A3B. The export writes only
 local-verifier-passing SFT rows under git-ignored `runs/` and does not print

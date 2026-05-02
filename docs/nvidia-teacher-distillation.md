@@ -19,6 +19,14 @@ $env:NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 `NVIDIA_BASE_URL` is optional. The default is
 `https://integrate.api.nvidia.com/v1`.
 
+If manual environment setup fails, use the helper. It prompts for the key with
+hidden input, sets it only for that process, then runs the export and training
+data report:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1
+```
+
 ## Fast Distill Command
 
 The default model order prioritizes the short-window and useful current
