@@ -57,12 +57,16 @@ def read_file_target_scope_issue(target: str) -> str | None:
     if any(part == ".." for part in lowered.split("/")):
         return "read_target_parent_traversal"
     sensitive_patterns = (
+        r"(^|/)\.git(/|$)",
         r"(^|/)\.env(\.|$)",
         r"(^|/)auth\.json$",
-        r"(^|/)id_rsa$",
+        r"(^|/)id_(rsa|ed25519)$",
         r"(^|/)\.ssh(/|$)",
         r"(^|/)credentials?(\.(json|toml|ya?ml)|$)",
         r"(^|/)secrets?(\.(json|toml|ya?ml)|$)",
+        r"(^|/)service[-_]?account(\.[^/]+)?$",
+        r"(^|/)[^/]*(api[-_]?key|private[-_]?key|secret|credential|token)[^/]*\.(env|json|key|pem|txt|toml|ya?ml)$",
+        r"\.(key|pem)$",
     )
     if _matches_any(lowered, sensitive_patterns):
         return "read_target_sensitive_file"
@@ -144,6 +148,7 @@ def mechanical_action_audit(action: ActionCandidate) -> ColdEyesVerdict | None:
             r"\b(copy|steal|extract)\b.{0,80}\b(cookie|session token|credential|token)\b",
             r"\b(remove-item|delete|del |erase|rm -rf)\b",
             r"\b(canon|audit|refusal|review criteria|audit log)\b.{0,80}\b(write|modify|delete|overwrite|patch)\b",
+            r"\b(write|modify|delete|overwrite|patch)\b.{0,80}\b(canon|audit|refusal|review criteria|audit log)\b",
         ),
     ):
         return ColdEyesVerdict("fail", "C2", "action_mechanical_c2_high_confidence", text, source="action_mechanical")

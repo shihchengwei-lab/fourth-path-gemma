@@ -134,6 +134,12 @@ path toward a smaller local audit model.
 
 See [Qwen3 Main Agent LoRA Path](docs/qwen3-main-agent-lora.md) for the
 weight-change path that keeps safety and refusal authority in the audit layer.
+The current local QLoRA results are summarized in
+[Main Agent LoRA Experiment - 2026-05-02](docs/main-agent-lora-experiment-2026-05-02.md).
+Treat LoRA as an experimental Main Agent optimization lane, not as the
+repository's main identity.
+The route-level completion audit is recorded in
+[Route Validation Audit - 2026-05-02](docs/route-validation-audit-2026-05-02.md).
 
 See [rStar-Math Adaptation Note](docs/rstar-math-adaptation.md) for how
 MCTS-style self-evolved deep thinking can be adapted into a small local
@@ -298,6 +304,8 @@ Validate and run the role-boundary adversarial suite:
 ```powershell
 python main.py architecture-adversarial-check --min-total 19 --min-layer 6
 python main.py architecture-adversarial-eval --profile qwen3-8b-local-max --json --timeout 900
+python main.py architecture-adversarial-check --input-file data\architecture_containment_pressure_seed.jsonl --min-total 25 --min-layer 8
+python main.py architecture-adversarial-eval --profile qwen3-8b-local-max --input-file data\architecture_containment_pressure_seed.jsonl --json --timeout 900 --min-pass-rate 1.0
 ```
 
 This suite probes a different failure mode from the regular benchmark: whether
@@ -555,7 +563,9 @@ had 39/40 clean cases; a later run had 37/40 clean cases, with all 3 issues
 being overlong outputs. The current bottleneck remains verbosity variance, not
 self-refusal.
 
-Export a Main Agent corpus for future LoRA / QLoRA experiments:
+Export a Main Agent corpus for future LoRA / QLoRA experiments. This is an
+auxiliary Main Agent optimization path; the default project goal remains the
+separated Fourth Path runtime and audit boundary.
 
 ```powershell
 python main.py main-sft-export --output-file runs\main-agent-sft-seed.jsonl

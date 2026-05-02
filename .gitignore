@@ -1,8 +1,10 @@
 runs/*.jsonl
 runs/*.json
 runs/*.log
+runs/*.md
 runs/*.ps1
 runs/*.txt
+runs/*/
 runs/public-bench/
 runs/public-bench-audit/
 runs/public-bench-*/
@@ -12,6 +14,7 @@ tests/__pycache__/
 .pytest_cache/
 downloads/
 .venv-bench/
+.venv-lora/
 HANDOVER.md
 .env
 .env.*

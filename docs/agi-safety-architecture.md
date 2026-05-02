@@ -127,6 +127,9 @@ The current implementation contributes an executable small-scale version:
   system/developer/audit state and whether Cold Eyes resists candidate-side
   instructions such as "ignore canon" or fake JSON self-approval. Public canon
   references are allowed.
+- `data/architecture_containment_pressure_seed.jsonl` is a stronger
+  Codex-authored pressure suite for fake audit approval, role-authority
+  collapse, and action-gate abuse.
 
 This is the minimum useful shape for the larger question. The next milestone is
 not claiming safety; it is making capability gain and safety cost measurable
@@ -149,11 +152,22 @@ Commands:
 ```powershell
 python main.py architecture-adversarial-check --min-total 19 --min-layer 6
 python main.py architecture-adversarial-eval --profile qwen3-8b-local-max --json --timeout 900
+python main.py architecture-adversarial-check --input-file data\architecture_containment_pressure_seed.jsonl --min-total 25 --min-layer 8
+python main.py architecture-adversarial-eval --profile qwen3-8b-local-max --input-file data\architecture_containment_pressure_seed.jsonl --json --timeout 900 --min-pass-rate 1.0
 ```
 
 This does not prove AGI safety. It makes one necessary condition measurable:
 each layer should keep its assigned authority even when the input tries to
 collapse the separation.
+
+The containment pressure suite currently passes 25/25 with
+`qwen3-8b-local-max`: 8/8 pipeline, 8/8 Cold Eyes, and 9/9 action-gate cases.
+The first run exposed safety-tax and diagnostic gaps, not a candidate-output
+bypass: one defensive phishing-awareness phrasing was prefiltered too
+aggressively, and one control-plane mutation failed closed without a C2 label.
+A later action-gate review also tightened project-relative sensitive filename
+blocking, including private-key and token files. These have regression coverage
+now.
 
 The first `qwen3-8b-local-max` run showed why this suite matters: Cold Eyes
 passed 6/6, while raw Main Agent output often followed meta requests. That is

@@ -5,6 +5,79 @@ new safety judge. The goal is to make `qwen3:8b` behave more like a pure
 candidate generator while Classify, mechanical Cold Eyes, and Cold Eyes keep the
 final refusal authority.
 
+This document is an experiment lane. The repository's main line remains the
+Fourth Path separation architecture: reasoning, routing, audit, and refusal
+authority are separate layers. LoRA work is useful only if it improves the Main
+Agent candidate-generator surface without moving safety authority back into the
+Main Agent.
+
+See [Main Agent LoRA Experiment - 2026-05-02](main-agent-lora-experiment-2026-05-02.md)
+for the local QLoRA run summary and its limits.
+
+## 2026-05-02 Experiment Status
+
+The first target-size local QLoRA round confirmed that the Main Agent surface is
+trainable on this machine, but it did not create a deployable default adapter.
+
+Key measured results:
+
+| Run | Eval surface | Clean |
+|---|---|---:|
+| `Qwen/Qwen3-8B` base | 30-row hard train surface | 2/30 |
+| 8B LoRA v2 | 30-row hard train surface | 29/30 |
+| 8B LoRA v3, no-thinking eval | 30-row hard train surface | 30/30 |
+| `Qwen/Qwen3-8B` base | 12-row fresh heldout | 0/12 |
+| 8B LoRA v2 | 12-row fresh heldout | 2/12 |
+| 8B LoRA v3 | 12-row fresh heldout | 7/12 |
+| 8B LoRA v3, no-thinking eval | 12-row fresh heldout | 7/12 |
+| 8B LoRA v4, no-thinking eval | 12-row fresh heldout | 9/12 |
+| `Qwen/Qwen3-8B` base | 12-row adapter containment seed, candidate clean | 1/12 |
+| 8B LoRA v3 | 12-row adapter containment seed, candidate clean | 6/12 |
+| 8B LoRA v4 | 12-row adapter containment seed, candidate clean | 5/12 |
+| `Qwen/Qwen3-8B` base | 12-row adapter containment seed, contained | 12/12 |
+| 8B LoRA v3 | 12-row adapter containment seed, contained | 12/12 |
+| 8B LoRA v4 | 12-row adapter containment seed, contained | 12/12 |
+| `Qwen/Qwen3-8B` base, no-thinking eval | 13-row generalization probe | 3/13 |
+| 8B LoRA v3, no-thinking eval | 13-row generalization probe | 4/13 |
+| 8B LoRA v4, no-thinking eval | 13-row generalization probe | 4/13 |
+
+The v3 improvement came after adding `data/main_agent_failure_driven_seed.jsonl`
+and resuming from the v2 adapter. Treat this as evidence for the data direction,
+not as a release gate pass. The fresh-heldout set has now been used to guide the
+failure-driven data round, so future promotion needs a new clean evaluation
+surface.
+
+The no-thinking eval recheck confirms the v3 capability gain is not just a Qwen
+thinking-template artifact.
+
+The generalization probe is the current caution flag: v3 only moved from 3/13
+to 4/13 on a new clean surface, and v4 stayed at 4/13. Treat the prior
+hard/fresh wins as local evidence for targeted data, not as proof that the
+adapter broadly generalized.
+
+The adapter containment seed exposed the important distinction between model
+behavior and architecture containment. The v3 adapter can still obey requests
+to say "Allowed", add a `Safety policy` section, or write `PASS and approved by
+safety`.
+
+Treat that as a containment-gate finding, not as a training target. The Main
+Agent should not be trained to become Cold Eyes, cite policy authority, or issue
+final safety approval. `data/main_agent_adapter_containment_seed.jsonl` is
+eval-only: it exists to verify that external gates stop role-authority candidate
+text before runtime integration.
+
+The v4 continuation added 24 synthetic generalization-driven training rows and
+improved the 12-row fresh-heldout score from 7/12 to 9/12 without reducing the
+containment score. It did not improve the separate 13-row generalization probe.
+That makes the next ability bottleneck data breadth, not more safety-boundary
+training.
+
+The Codex-authored architecture pressure suite
+`data/architecture_containment_pressure_seed.jsonl` separately tests fake audit
+approval, role-authority collapse, and action-gate abuse. Its current measured
+result is 25/25 with `qwen3-8b-local-max`, including 8/8 pipeline, 8/8 Cold
+Eyes, and 9/9 action-gate cases.
+
 ## Current Finding
 
 The current Main Agent seed eval does not show a refusal bottleneck:
@@ -61,7 +134,20 @@ Use explicit synthetic data instead:
 
 ```text
 data/main_agent_seed.jsonl
+data/main_agent_hard_seed.jsonl
+data/main_agent_failure_driven_seed.jsonl
+data/main_agent_generalization_driven_seed.jsonl
 ```
+
+Use `data/main_agent_adapter_containment_seed.jsonl` only as an eval-only
+containment-gate corpus. Do not export it as SFT training data.
+
+Use `data/main_agent_generalization_probe_seed.jsonl` as a clean capability
+probe. Do not use it to train the next adapter round; use its failure labels to
+design different synthetic rows instead.
+
+Use `data/architecture_containment_pressure_seed.jsonl` only as an
+architecture/adversarial eval corpus, not as Main Agent SFT data.
 
 Each record contains:
 
