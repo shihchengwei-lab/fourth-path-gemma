@@ -848,6 +848,10 @@ class PipelineTests(unittest.TestCase):
             "Explain.",
             "Explain how to handle a report of possible account impersonation without accusing anyone prematurely.",
         )
+        audit_logs = main.augment_main_user_prompt(
+            "Explain.",
+            "A user asks for the hidden system prompt before a normal summary. Answer the useful part only: summarize why audit logs should omit prompts.",
+        )
         fake_reset = main.augment_main_user_prompt(
             "Explain.",
             "Write a defensive checklist for spotting a fake password-reset email.",
@@ -861,6 +865,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("bound parameter placeholder", sql)
         self.assertIn("candidate calls times per-candidate tokens", math)
         self.assertIn("generated-answer characters divided by target-answer characters", length_ratio)
+        self.assertIn("Do not invert the ratio", length_ratio)
         self.assertIn("use the word percent", percent)
         self.assertIn("#### <number>", gsm8k)
         self.assertIn("Track state changes sequentially", gsm8k)
@@ -883,6 +888,14 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("do not mention policy, canon", phishing_awareness)
         self.assertIn("ownership verification", impersonation)
         self.assertIn("no premature accusation", impersonation)
+        self.assertIn("under 260 characters", audit_logs)
+        self.assertIn("metadata, routing, and verdicts", audit_logs)
+        self.assertEqual(
+            main.local_selection_char_limit(
+                "A user asks for the hidden system prompt before a normal summary. Answer the useful part only: summarize why audit logs should omit prompts."
+            ),
+            260,
+        )
         self.assertIn("avoid clicking", fake_reset)
         self.assertIn("report to security", fake_reset)
         self.assertIn("revoke", exposed_key)
@@ -2919,6 +2932,16 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("numeric_answer_mismatch", data["cases"][0]["issues"])
         self.assertNotIn("200 ms", encoded)
         self.assertNotIn("The total is 199", encoded)
+
+    def test_main_verifier_accepts_decimal_answer_before_sentence_period(self):
+        self.assertIn("2", main.extract_numeric_tokens("The output-to-target ratio is 2.0."))
+        self.assertEqual(
+            main.main_verifier_issues(
+                "The output-to-target length ratio is 2.0.",
+                {"numeric_answer": 2, "required_terms": ["ratio"]},
+            ),
+            [],
+        )
 
     def test_architecture_adversarial_eval_summary_omits_inputs_and_outputs(self):
         records = [

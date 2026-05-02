@@ -216,6 +216,7 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
     hints.extend(grade_school_math_distillation_hints(user_prompt))
     if ("output-to-target" in lower or "length ratio" in lower) and "character" in lower:
         hints.append("Compute length ratio as generated-answer characters divided by target-answer characters.")
+        hints.append("Do not invert the ratio; if the generated answer is longer than the target, the ratio must be greater than 1.")
     if "percent" in lower and "short sentence" in lower:
         hints.append("When the answer is a percentage, use the word percent rather than only the % symbol.")
     if "sql" in lower and ("safe" in lower or "safely" in lower):
@@ -255,6 +256,7 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
         hints.append("For exposed API keys, keep one concise sentence mentioning revoke, rotate, scan usage, and prevention checks.")
     if "audit logs should omit prompts" in lower:
         hints.append("Mention sensitive or private data, metadata, routing, and verdicts; omit hidden-prompt wording.")
+        hints.append("Keep the answer under 260 characters.")
     return hints
 
 
@@ -294,6 +296,8 @@ def local_selection_prompt_char_budget(user_prompt: str) -> int | None:
         and ("safety review" in lower or "main agent" in lower)
     ):
         return 340
+    if "audit logs should omit prompts" in lower:
+        return 260
     return None
 
 

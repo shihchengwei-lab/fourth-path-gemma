@@ -4024,7 +4024,7 @@ def normalize_numeric_token(value: str | int | float) -> str:
 
 def extract_numeric_tokens(text: str) -> set[str]:
     values: set[str] = set()
-    for match in re.finditer(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])", text):
+    for match in re.finditer(r"(?<![\w.])-?\d+(?:\.\d+)?(?!\w)", text):
         values.add(normalize_numeric_token(match.group(0)))
     return values
 
