@@ -68,6 +68,12 @@ from distill_data import (
     render_distill_check,
     validate_distill_record,
 )
+from eval_analysis import (
+    load_main_eval_failure_report,
+    main_eval_failure_report_data,
+    render_main_eval_failure_report,
+    write_main_eval_failure_report,
+)
 from eval_reports import (
     MainEvalCase,
     architecture_adversarial_eval_case_dict,
@@ -2811,6 +2817,20 @@ def main_eval_ablation_command(args: argparse.Namespace) -> int:
 
 
 
+def main_eval_failure_report_command(args: argparse.Namespace) -> int:
+    try:
+        data = load_main_eval_failure_report(Path(args.input_file))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SetupError(f"could not read main eval failure report input: {exc}") from exc
+    path = write_main_eval_failure_report(
+        data,
+        Path(args.output_file) if args.output_file else None,
+        Path(args.runs_dir),
+    )
+    print_json_or_text(data, args.json, render_main_eval_failure_report(data, path))
+    return 0
+
+
 def main_eval_command(args: argparse.Namespace) -> int:
     runtime = build_runtime_from_args(args)
     records, errors, total = load_main_agent_records(Path(args.input_file))
@@ -3276,6 +3296,7 @@ def command_handlers() -> dict[str, Any]:
         "idle-run-summary": idle_run_summary_command,
         "main-eval": main_eval_command,
         "main-eval-ablation": main_eval_ablation_command,
+        "main-eval-failure-report": main_eval_failure_report_command,
         "architecture-adversarial-eval": architecture_adversarial_eval_command,
         "distill-check": distill_check_command,
         "verifier-tool-gate": verifier_tool_gate_command,

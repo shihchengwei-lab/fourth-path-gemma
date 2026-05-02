@@ -1774,6 +1774,24 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.max_length_ratio, 4)
         self.assertTrue(args.json)
 
+    def test_parser_accepts_main_eval_failure_report_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "main-eval-failure-report",
+                "--input-file",
+                "runs/eval.json",
+                "--output-file",
+                "runs/report.json",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "main-eval-failure-report")
+        self.assertEqual(args.input_file, "runs/eval.json")
+        self.assertEqual(args.output_file, "runs/report.json")
+        self.assertTrue(args.json)
+
     def test_parser_accepts_main_sft_export_command(self):
         parser = main.build_parser()
         args = parser.parse_args(["main-sft-export", "--output-file", "out.jsonl", "--no-system", "--json"])
@@ -3039,6 +3057,115 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["ranking"][1]["clean_cases_per_main_call"], 0.5)
         self.assertNotIn("Prompt secret marker", encoded)
         self.assertNotIn("Better useful answer", encoded)
+
+    def test_main_eval_failure_report_summarizes_ablation_without_text(self):
+        summary = {
+            "results": [
+                {
+                    "profile": "base",
+                    "main_model": "main-model",
+                    "total": 2,
+                    "clean_count": 1,
+                    "issue_cases": 1,
+                    "issue_rate": 0.5,
+                    "total_main_calls": 2,
+                    "clean_cases_per_main_call": 0.5,
+                    "cases": [
+                        {
+                            "id": "case-1",
+                            "category": "rotated_math",
+                            "clean": False,
+                            "issues": ["missing_required_pattern"],
+                            "main_call_count": 1,
+                            "length_ratio": 1.2,
+                            "prompt": "Prompt secret marker.",
+                            "output": "Output secret marker.",
+                        },
+                        {
+                            "id": "case-2",
+                            "category": "rotated_math",
+                            "clean": True,
+                            "issues": [],
+                            "target_response": "Target secret marker.",
+                        },
+                    ],
+                },
+                {
+                    "profile": "adaptive",
+                    "main_model": "main-model",
+                    "total": 2,
+                    "clean_count": 1,
+                    "issue_cases": 1,
+                    "issue_rate": 0.5,
+                    "total_main_calls": 3,
+                    "clean_cases_per_main_call": 1 / 3,
+                    "cases": [
+                        {
+                            "id": "case-1",
+                            "category": "rotated_math",
+                            "clean": False,
+                            "issues": ["missing_required_any"],
+                            "main_call_count": 2,
+                            "local_selection_reasons": ["prompt_shape"],
+                        }
+                    ],
+                },
+            ]
+        }
+
+        data = main.main_eval_failure_report_data(summary, source_path="runs/eval.json")
+        encoded = json.dumps(data, ensure_ascii=False)
+
+        self.assertEqual(data["kind"], "main_eval_ablation")
+        self.assertEqual(data["issue_counts"]["missing_required_pattern"], 1)
+        self.assertEqual(data["issue_counts"]["missing_required_any"], 1)
+        self.assertEqual(data["category_issue_counts"]["rotated_math|missing_required_pattern"], 1)
+        self.assertEqual(data["local_selection_reason_counts"]["prompt_shape"], 1)
+        self.assertEqual(data["efficiency_ranking"][0]["profile"], "base")
+        self.assertEqual(len(data["case_failures"]), 2)
+        self.assertNotIn("Prompt secret marker", encoded)
+        self.assertNotIn("Output secret marker", encoded)
+        self.assertNotIn("Target secret marker", encoded)
+
+    def test_main_eval_failure_report_command_writes_json(self):
+        summary = {
+            "main_model": "main-model",
+            "total": 1,
+            "clean_count": 0,
+            "issue_cases": 1,
+            "issue_rate": 1.0,
+            "total_main_calls": 1,
+            "clean_per_main_call": 0.0,
+            "cases": [
+                {
+                    "id": "case-1",
+                    "category": "strict_format",
+                    "clean": False,
+                    "issues": ["missing_required_pattern"],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            input_file = Path(tmp) / "eval.json"
+            input_file.write_text(json.dumps(summary), encoding="utf-8")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main.main(
+                    [
+                        "main-eval-failure-report",
+                        "--input-file",
+                        str(input_file),
+                        "--runs-dir",
+                        tmp,
+                        "--json",
+                    ]
+                )
+
+            self.assertEqual(code, 0)
+            data = json.loads(out.getvalue())
+            self.assertEqual(data["kind"], "main_eval")
+            self.assertEqual(data["issue_counts"]["missing_required_pattern"], 1)
+            self.assertTrue(Path(data["main_eval_failure_report_path"]).exists())
 
     def test_main_eval_reports_local_selection_without_candidate_text(self):
         records = [

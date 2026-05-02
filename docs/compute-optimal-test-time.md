@@ -112,6 +112,17 @@ it experimental. The failure labels were concentrated in required-any,
 required-pattern, and one restricted Python test failure, so the next useful
 work is better data/verifier targeting rather than more runtime compute.
 
+To turn this saved ablation into a safe next-data target list without rerunning
+Ollama:
+
+```powershell
+python main.py main-eval-failure-report --input-file runs\main-eval-ablation-rotated-20260502.json --json
+```
+
+This report aggregates issue labels, category/issue pairs, profile efficiency,
+and local-selection reasons. It intentionally keeps prompt text, target text,
+and model output out of the report.
+
 ## Source
 
 - Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling

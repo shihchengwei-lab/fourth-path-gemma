@@ -156,6 +156,14 @@ Local implementation hooks now exist for this backlog:
 - verifier coverage totals, including restricted `python_tests`
 - `clean_cases_per_main_call`
 - `main-eval-ablation`
+- `main-eval-failure-report`
+
+The newest no-Ollama bridge is `main-eval-failure-report`. It reads a saved
+`main-eval` or `main-eval-ablation` JSON file and turns it into issue counts,
+category/issue failure targets, profile efficiency ranking, and local-selection
+reason counts without printing prompt text, target text, or model output. Use it
+before adding more hard rows so the next data batch follows measured failures
+rather than guesses.
 
 ## Do Not Do Yet
 

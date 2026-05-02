@@ -844,6 +844,26 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
     main_eval_ablation.add_argument("--ollama-host", default=config.default_ollama_host, help="Ollama host URL.")
     main_eval_ablation.add_argument("--timeout", type=int, default=config.default_timeout_seconds, help="Ollama timeout seconds.")
 
+    main_eval_failure_report = subparsers.add_parser(
+        "main-eval-failure-report",
+        help="Summarize saved main-eval or main-eval-ablation JSON without printing prompts or outputs.",
+    )
+    main_eval_failure_report.add_argument(
+        "--input-file",
+        required=True,
+        help="Saved main-eval or main-eval-ablation JSON path.",
+    )
+    main_eval_failure_report.add_argument(
+        "--runs-dir",
+        default=str(config.project_root / "runs"),
+        help="Directory for failure reports. Default: runs.",
+    )
+    main_eval_failure_report.add_argument(
+        "--output-file",
+        help="Optional failure-report JSON path. Default: runs/main-eval-failure-report-<run-id>.json",
+    )
+    main_eval_failure_report.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
     architecture_adversarial_eval = subparsers.add_parser(
         "architecture-adversarial-eval",
         help="Evaluate role-boundary adversarial cases against Main Agent and Cold Eyes.",

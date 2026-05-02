@@ -452,6 +452,7 @@ Validate and measure the synthetic Main Agent role-behavior corpus:
 python main.py local-release-gate --json
 python main.py main-check --min-total 40 --min-category 1
 python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max-length-ratio 4
+python main.py main-eval-failure-report --input-file runs\main-eval-ablation-rotated-20260502.json --json
 ```
 
 `local-release-gate` is a no-Ollama preflight. It runs the data-quality,
@@ -459,6 +460,11 @@ architecture adversarial seed, distillation-format, verifier/tool-use, and
 inference-compute readiness gates before any slower model evaluation. Its SFT
 format gate now covers seed, hard, and held-out Main Agent corpora together so
 cross-file row-id collisions cannot hide outside the default seed export.
+
+`main-eval-failure-report` is also no-Ollama. It reads a saved `main-eval` or
+`main-eval-ablation` JSON file and reports issue labels, failure categories,
+profile efficiency, and local-selection reasons without printing prompts,
+targets, or model outputs.
 
 The Main Agent seed corpus currently has 40 synthetic records, including
 near-boundary defensive security tasks and concise-control tasks. Recent
