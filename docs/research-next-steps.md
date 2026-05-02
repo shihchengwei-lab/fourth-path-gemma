@@ -152,6 +152,10 @@ Do these before another architecture refactor round:
    fresh held-out set. (Done on 2026-05-02:
    `runs\main-eval-ablation-fresh-heldout-final-v3-20260502.json`; all three
    profiles reached 11/12, while adaptive compute used more calls.)
+8. Add a fixed-weight latent headroom probe for bottom-model potential. (Done on
+   2026-05-02: `main-latent-headroom` plus
+   `data/main_agent_latent_probe_seed.jsonl`; local-max reached first-pass 2/8,
+   any-clean 3/8, latent-rescued 1/8.)
 
 Local implementation hooks now exist for this backlog:
 
@@ -163,6 +167,7 @@ Local implementation hooks now exist for this backlog:
 - `clean_cases_per_main_call`
 - `main-eval-ablation`
 - `main-eval-failure-report`
+- `main-latent-headroom`
 
 The newest no-Ollama bridge is `main-eval-failure-report`. It reads a saved
 `main-eval` or `main-eval-ablation` JSON file and turns it into issue counts,
@@ -185,6 +190,11 @@ The current fresh held-out file is also now a tuned regression surface. Its
 repeat ablation leaves `fresh-heldout-plan-001` as the shared failure target,
 so the next high-value work is another fresh/public gate or synthetic planning
 rows derived from the failure label, not KV-cache integration.
+
+The latent headroom probe gives a bottom-model-specific reading: generic
+reshaping and one-pass refinement do not unlock most strict-format or planning
+failures, but one code-repair task was rescued after prompt-shape changes. That
+points to narrower prompt/data routes before backend work.
 
 ## Do Not Do Yet
 

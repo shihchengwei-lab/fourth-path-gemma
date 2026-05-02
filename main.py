@@ -105,6 +105,11 @@ from idle_summary import (
     summarize_idle_log,
     summarize_main_eval_artifact,
 )
+from latent_headroom import (
+    DEFAULT_LATENT_HEADROOM_VARIANTS,
+    render_latent_headroom_probe,
+    run_latent_headroom_probe,
+)
 from main_agent_data import (
     MainAgentCheck,
     MainAgentRecord,
@@ -2832,6 +2837,41 @@ def main_eval_failure_report_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def main_latent_headroom_command(args: argparse.Namespace) -> int:
+    records, errors, total = load_main_agent_records(Path(args.input_file))
+    if errors:
+        result = MainAgentCheck(Path(args.input_file), total, {}, errors)
+        print_json_or_text(result.public_dict(), args.json, render_main_agent_check(result))
+        return 1
+
+    runtime = RUNTIME_PROFILES[args.profile]
+    client = OllamaClient(host=args.ollama_host, timeout=args.timeout)
+    client.ensure_ready(runtime.main.model)
+    variants = args.variant or list(DEFAULT_LATENT_HEADROOM_VARIANTS)
+    data = run_latent_headroom_probe(
+        client=client,
+        runtime=runtime,
+        records=records,
+        generate_candidate=generate_main_for_eval,
+        candidate_issues=main_candidate_issues,
+        verifier_issues=main_verifier_issues,
+        attempts_per_variant=args.attempts_per_variant,
+        variants=variants,
+        max_length_ratio=args.max_length_ratio,
+    )
+    data["input_file"] = args.input_file
+    data["profile"] = args.profile
+    path = write_json_summary(
+        data,
+        Path(args.output_file) if args.output_file else None,
+        Path(args.runs_dir),
+        "main-latent-headroom",
+        "main_latent_headroom_path",
+    )
+    print_json_or_text(data, args.json, render_latent_headroom_probe(data, path))
+    return 0
+
+
 def main_eval_command(args: argparse.Namespace) -> int:
     runtime = build_runtime_from_args(args)
     records, errors, total = load_main_agent_records(Path(args.input_file))
@@ -3298,6 +3338,7 @@ def command_handlers() -> dict[str, Any]:
         "main-eval": main_eval_command,
         "main-eval-ablation": main_eval_ablation_command,
         "main-eval-failure-report": main_eval_failure_report_command,
+        "main-latent-headroom": main_latent_headroom_command,
         "architecture-adversarial-eval": architecture_adversarial_eval_command,
         "distill-check": distill_check_command,
         "verifier-tool-gate": verifier_tool_gate_command,

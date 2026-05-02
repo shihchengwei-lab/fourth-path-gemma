@@ -452,6 +452,32 @@ For the 2026-05-02 continuation gate, see
 open questions to concrete evidence: next-token headroom, paper directions,
 and KV-cache memory pressure.
 
+For fixed-weight bottom-model headroom, use the latent probe:
+
+```powershell
+python main.py main-check --input-file data\main_agent_latent_probe_seed.jsonl --min-total 8 --min-category 2 --json
+python main.py main-latent-headroom --profile qwen3-8b-local-max --json --timeout 1200 --max-length-ratio 4
+python main.py main-latent-headroom --profile qwen3-8b-s2t-lite --json --timeout 1200 --max-length-ratio 4
+```
+
+Latest local result:
+
+- `qwen3-8b-local-max`, 48 Main Agent calls:
+  first-pass 2/8, any-clean 3/8, latent-rescued 1/8, stable-clean 2/8,
+  never-clean 5/8, attempt clean rate 14/48.
+- `qwen3-8b-s2t-lite`, 48 Main Agent calls:
+  first-pass 2/8, any-clean 3/8, latent-rescued 1/8, stable-clean 2/8,
+  never-clean 5/8, attempt clean rate 15/48.
+- `qwen3-8b-deliberate`, 48 Main Agent calls through one refinement pass:
+  first-pass 2/8, any-clean 2/8, latent-rescued 0/8, stable-clean 2/8,
+  never-clean 6/8.
+
+This supports a narrow reading: the bottom model has reachable latent answers,
+but generic prompt reshaping, local selection, and one-pass refinement do not
+unlock most strict-format or planning failures. The next useful work is
+targeted verifier-backed data and prompt-shape routing, not broader runtime
+compute.
+
 The current priority order is documented in
 [Distillation-First Roadmap](distillation-first-roadmap.md): distillation data
 quality, distillation format, verifier/tool-use, inference-time compute, then

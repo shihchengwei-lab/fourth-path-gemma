@@ -417,7 +417,7 @@ PYTHON_TEST_ALLOWED_BUILTINS = {
     "round": round,
     "sum": sum,
 }
-PYTHON_TEST_ALLOWED_METHODS = {"strip", "lower", "split", "upper"}
+PYTHON_TEST_ALLOWED_METHODS = {"strip", "lower", "replace", "split", "upper"}
 PYTHON_TEST_ALLOWED_NODES = (
     ast.Module,
     ast.FunctionDef,

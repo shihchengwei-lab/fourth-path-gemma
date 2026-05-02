@@ -19,6 +19,7 @@ from compute_gates import (
     TOKEN_BACKEND_CHOICES,
 )
 from core_types import SetupError
+from latent_headroom import DEFAULT_LATENT_HEADROOM_VARIANTS
 from runtime_config import ModelOptions, RoleRuntime, RuntimeConfig
 
 
@@ -863,6 +864,51 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
         help="Optional failure-report JSON path. Default: runs/main-eval-failure-report-<run-id>.json",
     )
     main_eval_failure_report.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
+    main_latent_headroom = subparsers.add_parser(
+        "main-latent-headroom",
+        help="Probe bottom-model latent capability with repeated prompt-shape attempts without printing prompts or outputs.",
+    )
+    main_latent_headroom.add_argument(
+        "--profile",
+        choices=sorted(config.runtime_profiles),
+        default="qwen3-8b-local-max",
+        help="Runtime profile. Default: qwen3-8b-local-max.",
+    )
+    main_latent_headroom.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    main_latent_headroom.add_argument(
+        "--input-file",
+        default=str(config.project_root / "data" / "main_agent_latent_probe_seed.jsonl"),
+        help="JSONL corpus path. Default: data/main_agent_latent_probe_seed.jsonl.",
+    )
+    main_latent_headroom.add_argument(
+        "--variant",
+        action="append",
+        choices=DEFAULT_LATENT_HEADROOM_VARIANTS,
+        help="Prompt-shape variant. Can be repeated. Defaults to baseline, constraint_first, and self_check.",
+    )
+    main_latent_headroom.add_argument(
+        "--attempts-per-variant",
+        type=int,
+        default=2,
+        help="Repeated generations per prompt-shape variant. Default: 2.",
+    )
+    main_latent_headroom.add_argument(
+        "--max-length-ratio",
+        type=float,
+        help="Flag outputs longer than this output/target character ratio as overlong.",
+    )
+    main_latent_headroom.add_argument(
+        "--runs-dir",
+        default=str(config.project_root / "runs"),
+        help="Directory for latent-headroom summaries. Default: runs.",
+    )
+    main_latent_headroom.add_argument(
+        "--output-file",
+        help="Optional latent-headroom JSON path. Default: runs/main-latent-headroom-<run-id>.json",
+    )
+    main_latent_headroom.add_argument("--ollama-host", default=config.default_ollama_host, help="Ollama host URL.")
+    main_latent_headroom.add_argument("--timeout", type=int, default=config.default_timeout_seconds, help="Ollama timeout seconds.")
 
     architecture_adversarial_eval = subparsers.add_parser(
         "architecture-adversarial-eval",

@@ -79,6 +79,12 @@ hard/held-out files without printing prompt or target text. The fresh held-out
 file adds a clean gate across math, Python repair, strict-format, planning, and
 defensive near-boundary cases before any LoRA claim.
 
+`data/main_agent_latent_probe_seed.jsonl` is separate. It is checked by the
+local release gate as a probe corpus, but it is not part of the default SFT
+export or data-quality training bundle. Use it to measure fixed-weight
+first-pass, any-clean, rescued, stable, and never-clean records before deciding
+whether failures are prompt/data problems or bottom-model boundaries.
+
 ## 2. Distillation Format
 
 The training format must preserve the architecture boundary.
@@ -115,6 +121,7 @@ python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-tot
 python main.py main-check --input-file data\main_agent_heldout_seed.jsonl --min-total 12 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_rotated_heldout_seed.jsonl --min-total 8 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_fresh_heldout_seed.jsonl --min-total 12 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_latent_probe_seed.jsonl --min-total 8 --min-category 2 --json
 python main.py distill-check --min-pass 19 --min-fail 25 --min-clause 8 --json
 python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --json
 python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --require-generated-metadata --json

@@ -113,6 +113,11 @@ See [Qwen3-8B Headroom Audit](docs/headroom-audit-2026-05-02.md) for the
 current continue/stop gate on next-token headroom, paper directions, and
 KV-cache memory pressure.
 
+See [Main Agent Latent Headroom Probe](docs/latent-headroom-probe.md) for the
+current fixed-weight bottom-model probe: first-pass clean, any-clean,
+latent-rescued, stable-clean, and never-clean records across repeated
+prompt-shape attempts.
+
 See [Distillation-First Roadmap](docs/distillation-first-roadmap.md) for the
 current priority order: data quality, format, verifier/tool-use,
 inference-time compute, then KV cache work.
@@ -478,6 +483,7 @@ python main.py local-release-gate --json
 python main.py main-check --min-total 40 --min-category 1
 python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max-length-ratio 4
 python main.py main-eval-failure-report --input-file runs\main-eval-ablation-rotated-20260502.json --json
+python main.py main-latent-headroom --profile qwen3-8b-local-max --json --timeout 1200 --max-length-ratio 4
 ```
 
 `local-release-gate` is a no-Ollama preflight. It runs the data-quality,
@@ -486,6 +492,15 @@ inference-compute readiness gates before any slower model evaluation. Its SFT
 format gate now covers seed, hard, held-out, rotated held-out, and fresh
 held-out Main Agent corpora together so cross-file row-id collisions cannot hide
 outside the default seed export.
+
+`main-latent-headroom` is a model-running probe, but not a training pipeline. It
+uses `data\main_agent_latent_probe_seed.jsonl` to measure whether fixed
+`qwen3:8b` can reach a verifier-passing answer after repeated prompt-shape
+attempts. The latest 2026-05-02 local-max run reached first-pass 2/8,
+any-clean 3/8, latent-rescued 1/8, stable-clean 2/8, and never-clean 5/8. The
+same-budget `qwen3-8b-s2t-lite` run kept the same record-level result, and the
+same-call-budget deliberate run dropped to any-clean 2/8. Treat this as
+bottom-model headroom evidence, not a public benchmark.
 
 `main-eval-failure-report` is also no-Ollama. It reads a saved `main-eval` or
 `main-eval-ablation` JSON file and reports issue labels, failure categories,

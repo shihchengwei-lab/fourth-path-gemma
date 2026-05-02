@@ -8,6 +8,20 @@ as arithmetic. The base model's fixed weights are not made better by a prompt.
 What can still improve is the conditioning, decoding, token-level backend, or
 offline adapter that changes future next-token probabilities.
 
+The repo now has a separate fixed-weight latent-capability probe:
+
+```powershell
+python main.py main-latent-headroom --profile qwen3-8b-local-max --json --timeout 1200 --max-length-ratio 4
+```
+
+This is not a logits-level next-token tool. It measures whether repeated
+prompt-shape attempts can reach verifier-passing outputs without changing
+weights. On 2026-05-02, `qwen3-8b-local-max` reached first-pass 2/8 and
+any-clean 3/8 on `data\main_agent_latent_probe_seed.jsonl`; `qwen3-8b-s2t-lite`
+kept the same record-level result with a slightly better attempt clean rate;
+`qwen3-8b-deliberate` did not improve under an equal approximate Main Agent
+call budget. See [Main Agent Latent Headroom Probe](latent-headroom-probe.md).
+
 ## 1. Can Next-Token Computation Improve?
 
 Yes, with a boundary.

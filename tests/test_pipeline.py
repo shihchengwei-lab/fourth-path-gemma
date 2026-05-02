@@ -1919,6 +1919,32 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.output_file, "runs/report.json")
         self.assertTrue(args.json)
 
+    def test_parser_accepts_main_latent_headroom_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "main-latent-headroom",
+                "--profile",
+                "qwen3-8b-local-max",
+                "--variant",
+                "baseline",
+                "--variant",
+                "self_check",
+                "--attempts-per-variant",
+                "3",
+                "--max-length-ratio",
+                "4",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "main-latent-headroom")
+        self.assertEqual(args.profile, "qwen3-8b-local-max")
+        self.assertEqual(args.variant, ["baseline", "self_check"])
+        self.assertEqual(args.attempts_per_variant, 3)
+        self.assertEqual(args.max_length_ratio, 4)
+        self.assertTrue(args.json)
+
     def test_parser_accepts_main_sft_export_command(self):
         parser = main.build_parser()
         args = parser.parse_args(["main-sft-export", "--output-file", "out.jsonl", "--no-system", "--json"])
@@ -2267,6 +2293,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
         self.assertEqual(data["main_corpora"]["rotated_heldout"]["total"], 8)
         self.assertEqual(data["main_corpora"]["fresh_heldout"]["total"], 12)
+        self.assertEqual(data["main_corpora"]["latent_probe"]["total"], 8)
         self.assertEqual(data["data_quality"]["verifier_type_count"], 8)
         self.assertEqual(data["sft_format"]["rows"], 102)
         self.assertEqual(len(data["sft_format"]["source_paths"]), 5)
@@ -2543,6 +2570,36 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(fresh.categories["fresh_heldout_code_repair"], 3)
         self.assertEqual(verifier_failures, {})
         self.assertFalse(any(record.prompt in known_prompts for record in fresh_records))
+
+    def test_main_agent_latent_probe_seed_corpus_is_valid_and_separate(self):
+        path = main.PROJECT_ROOT / "data" / "main_agent_latent_probe_seed.jsonl"
+        latent = main.check_main_agent_corpus(path)
+        source_paths = [
+            main.PROJECT_ROOT / "data" / "main_agent_seed.jsonl",
+            main.PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl",
+            main.PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl",
+            main.PROJECT_ROOT / "data" / "main_agent_rotated_heldout_seed.jsonl",
+            main.PROJECT_ROOT / "data" / "main_agent_fresh_heldout_seed.jsonl",
+        ]
+        known_records = []
+        for source_path in source_paths:
+            records, _, _ = main.load_main_agent_records(source_path)
+            known_records.extend(records)
+        known_prompts = {record.prompt for record in known_records}
+        latent_records, _, _ = main.load_main_agent_records(path)
+        verifier_failures = {
+            record.record_id: main.main_verifier_issues(record.target_response, record.verifier)
+            for record in latent_records
+            if main.main_verifier_issues(record.target_response, record.verifier)
+        }
+
+        self.assertEqual(latent.errors, [])
+        self.assertEqual(latent.total, 8)
+        self.assertEqual(latent.verifier_records, 8)
+        self.assertEqual(latent.categories["latent_probe_math"], 2)
+        self.assertEqual(latent.categories["latent_probe_planning"], 2)
+        self.assertEqual(verifier_failures, {})
+        self.assertFalse(any(record.prompt in known_prompts for record in latent_records))
 
     def test_main_agent_record_rejects_candidate_output_fields(self):
         errors = main.validate_main_agent_record(
@@ -3451,6 +3508,57 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("numeric_answer_mismatch", data["cases"][0]["issues"])
         self.assertNotIn("200 ms", encoded)
         self.assertNotIn("The total is 199", encoded)
+
+    def test_latent_headroom_probe_counts_rescue_without_text_leak(self):
+        records = [
+            main.MainAgentRecord(
+                record_id="latent-1",
+                category="latent_math",
+                prompt="Secret prompt marker: compute the value.",
+                target_response="Target secret marker 2",
+                verifier={"numeric_answer": 2},
+            ),
+            main.MainAgentRecord(
+                record_id="latent-2",
+                category="latent_format",
+                prompt="Another secret prompt marker.",
+                target_response="Target secret marker done",
+                verifier={"required_terms": ["done"]},
+            ),
+        ]
+        runtime = main.RuntimeConfig(main=main.RoleRuntime("main-model"), audit=main.RoleRuntime("audit-model"))
+        client = main.FakeClient(
+            main_outputs=[
+                "Output secret marker wrong",
+                "The answer is 2.",
+                "Still wrong",
+                "Also wrong",
+            ],
+            cold_outputs=[],
+        )
+
+        data = main.run_latent_headroom_probe(
+            client=client,
+            runtime=runtime,
+            records=records,
+            generate_candidate=main.generate_main_for_eval,
+            candidate_issues=main.main_candidate_issues,
+            verifier_issues=main.main_verifier_issues,
+            attempts_per_variant=1,
+            variants=("baseline", "self_check"),
+        )
+        encoded = json.dumps(data, ensure_ascii=False)
+
+        self.assertEqual(data["total_records"], 2)
+        self.assertEqual(data["first_pass_clean_count"], 0)
+        self.assertEqual(data["any_clean_count"], 1)
+        self.assertEqual(data["latent_rescue_count"], 1)
+        self.assertEqual(data["never_clean_count"], 1)
+        self.assertEqual(data["category_headroom_counts"], {"latent_math": 1})
+        self.assertEqual(data["records"][0]["clean_variants"], ["self_check"])
+        self.assertNotIn("Secret prompt marker", encoded)
+        self.assertNotIn("Target secret marker", encoded)
+        self.assertNotIn("Output secret marker", encoded)
 
     def test_main_verifier_accepts_decimal_answer_before_sentence_period(self):
         self.assertIn("2", main.extract_numeric_tokens("The output-to-target ratio is 2.0."))
