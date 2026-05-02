@@ -1,6 +1,8 @@
 param(
     [string]$InputFile = "data\main_agent_hard_seed.jsonl",
     [string]$OutputFile = "runs\main-agent-nvidia-teacher.jsonl",
+    [string]$SummaryFile = "runs\main-agent-nvidia-teacher-summary.json",
+    [string]$ReportFile = "runs\main-agent-nvidia-teacher-report.json",
     [int]$LimitRecords = 3,
     [int]$SamplesPerModel = 1,
     [double]$RequestsPerMinute = 36,
@@ -68,6 +70,8 @@ if ($DryRun) {
             "python main.py main-training-data-report --input-file " +
             "$OutputFile --require-system --require-generated-metadata --json"
         )
+        Write-Host "Export summary file: $SummaryFile"
+        Write-Host "Training report file: $ReportFile"
     }
     exit 0
 }
@@ -75,18 +79,29 @@ if ($DryRun) {
 Write-Host "Starting NVIDIA teacher distillation from $repoRoot"
 Write-Host "Input: $InputFile"
 Write-Host "Output: $OutputFile"
+Write-Host "Summary: $SummaryFile"
 Write-Host "LimitRecords: $LimitRecords; SamplesPerModel: $SamplesPerModel; RequestsPerMinute: $RequestsPerMinute; Timeout: $Timeout"
 
-& python @exportArgs
+$summaryParent = Split-Path -Parent $SummaryFile
+if ($summaryParent) {
+    New-Item -ItemType Directory -Path $summaryParent -Force | Out-Null
+}
+
+& python @exportArgs | Tee-Object -FilePath $SummaryFile
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
 if (-not $SkipReport) {
+    $reportParent = Split-Path -Parent $ReportFile
+    if ($reportParent) {
+        New-Item -ItemType Directory -Path $reportParent -Force | Out-Null
+    }
     & python main.py main-training-data-report `
         --input-file $OutputFile `
         --require-system `
         --require-generated-metadata `
-        --json
+        --json |
+        Tee-Object -FilePath $ReportFile
     exit $LASTEXITCODE
 }

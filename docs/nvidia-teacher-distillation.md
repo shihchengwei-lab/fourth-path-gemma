@@ -35,6 +35,10 @@ a one-request smoke test before a broader batch:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1 -Model minimaxai/minimax-m2.7 -LimitRecords 1 -Timeout 180
 ```
 
+It also writes the secret-free command summaries to
+`runs/main-agent-nvidia-teacher-summary.json` and
+`runs/main-agent-nvidia-teacher-report.json`.
+
 ## Fast Distill Command
 
 The default model order prioritizes the short-window and useful current

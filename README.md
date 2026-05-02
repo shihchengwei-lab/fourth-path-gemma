@@ -444,6 +444,9 @@ For a one-request smoke test before a broader batch:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1 -Model minimaxai/minimax-m2.7 -LimitRecords 1 -Timeout 180
 ```
 
+The helper saves secret-free summaries under `runs/` so a later session can
+inspect whether the endpoint failed or the local verifier rejected the sample.
+
 The default NVIDIA teacher order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3
 Super 120B-A12B, GPT-OSS 120B, then Qwen3-Next 80B-A3B. The export writes only
 local-verifier-passing SFT rows under git-ignored `runs/` and does not print
