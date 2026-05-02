@@ -20,6 +20,19 @@ ACTION_CANDIDATE_REQUIRED_FIELDS: tuple[str, ...] = (
     "risk_surface",
 )
 
+SENSITIVE_READ_TARGET_PATTERNS: tuple[str, ...] = (
+    r"(^|/)\.git(/|$)",
+    r"(^|/)\.env(\.|$)",
+    r"(^|/)auth\.json$",
+    r"(^|/)id_(rsa|ed25519)$",
+    r"(^|/)\.ssh(/|$)",
+    r"(^|/)credentials?(\.(json|toml|ya?ml)|$)",
+    r"(^|/)secrets?(\.(json|toml|ya?ml)|$)",
+    r"(^|/)service[-_]?account(\.[^/]+)?$",
+    r"(^|/)[^/]*(api[-_]?key|private[-_]?key|secret|credential|token)[^/]*\.(env|json|key|pem|txt|toml|ya?ml)$",
+    r"\.(key|pem)$",
+)
+
 
 def _matches_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
@@ -56,19 +69,7 @@ def read_file_target_scope_issue(target: str) -> str | None:
         return "read_target_not_project_relative"
     if any(part == ".." for part in lowered.split("/")):
         return "read_target_parent_traversal"
-    sensitive_patterns = (
-        r"(^|/)\.git(/|$)",
-        r"(^|/)\.env(\.|$)",
-        r"(^|/)auth\.json$",
-        r"(^|/)id_(rsa|ed25519)$",
-        r"(^|/)\.ssh(/|$)",
-        r"(^|/)credentials?(\.(json|toml|ya?ml)|$)",
-        r"(^|/)secrets?(\.(json|toml|ya?ml)|$)",
-        r"(^|/)service[-_]?account(\.[^/]+)?$",
-        r"(^|/)[^/]*(api[-_]?key|private[-_]?key|secret|credential|token)[^/]*\.(env|json|key|pem|txt|toml|ya?ml)$",
-        r"\.(key|pem)$",
-    )
-    if _matches_any(lowered, sensitive_patterns):
+    if _matches_any(lowered, SENSITIVE_READ_TARGET_PATTERNS):
         return "read_target_sensitive_file"
     return None
 
