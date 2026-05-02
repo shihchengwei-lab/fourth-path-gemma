@@ -180,15 +180,15 @@ The 2026-05-02 full idle run gives the current Qwen3 comparison point on the
 40-record Main Agent seed corpus:
 
 - `qwen3-8b-s2t-lite`: 40/40 clean, 0 refusal-like outputs, 0 overlong cases,
-  40 Main Agent calls, about 162.7 seconds.
-- `qwen3-8b-local-max`: 36/40 clean, 0 refusal-like outputs, 3/40 overlong
-  cases, 40 Main Agent calls, about 521.1 seconds in this run.
-- `qwen3-8b-deliberate`: 37/40 clean, 0 refusal-like outputs, 2/40 overlong
-  cases, 80 Main Agent calls, about 333.8 seconds.
-- `qwen3-8b-reasoning`: 36/40 clean, 0 refusal-like outputs, 4/40 overlong
-  cases, 40 Main Agent calls, about 511.4 seconds.
-- `qwen3-8b-search`: 37/40 clean, 0 refusal-like outputs, 2/40 overlong cases,
-  120 Main Agent/selector calls, about 480.8 seconds.
+  40 Main Agent calls, about 161.9 seconds.
+- `qwen3-8b-local-max`: 39/40 clean, 0 refusal-like outputs, 1/40 overlong
+  case, 40 Main Agent calls, about 159.3 seconds in this run.
+- `qwen3-8b-deliberate`: 40/40 clean, 0 refusal-like outputs, 0 overlong
+  cases, 80 Main Agent calls, about 321.3 seconds.
+- `qwen3-8b-reasoning`: 37/40 clean, 0 refusal-like outputs, 2/40 overlong
+  cases, 40 Main Agent calls, about 515.9 seconds.
+- `qwen3-8b-search`: 36/40 clean, 0 refusal-like outputs, 3/40 overlong cases,
+  120 Main Agent/selector calls, about 469.3 seconds.
 
 The earlier 2026-05-01 idle run remains useful historical context:
 
@@ -574,6 +574,14 @@ Current hard-corpus measurement after the 2026-05-01 S2T/rStar-inspired pass:
 This means the present hard corpus is now saturated too. The next useful gate
 must be held out from these distilled hints, with more varied arithmetic,
 code-repair, open-ended planning, and near-boundary concise-helpfulness cases.
+
+The later full idle run `runs\idle-long-run-20260502-072659.log` added S2T
+seed/hard/held-out evals to the long runner and completed 29/29 steps. That run
+surfaced a verifier false negative on decimal answers written as sentence-final
+`2.0.` and one concise-boundary overrun. After fixing decimal punctuation
+extraction and adding the audit-log concise cap,
+`runs\main-eval-qwen3-8b-s2t-lite-hard-after-audit-log-cap-20260502.json`
+returned the hard corpus to 16/16 clean with 16 Main Agent calls.
 
 Regression check on the original 40-record Main Agent seed after the same pass:
 

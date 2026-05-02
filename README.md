@@ -200,14 +200,14 @@ The latest local A/B run keeps the default conservative, but makes
 idle run, the fixed warm benchmark finished with the same 3 pass / 1 refused
 result across measured profiles: `qwen3-8b-local-max` took about 11.3 seconds,
 `qwen3-8b-s2t-lite` took about 11.3 seconds, `qwen3-8b-deliberate` took about
-21.6 seconds, `qwen3-8b-reasoning` took about 33.1 seconds, and the current
-two-candidate `qwen3-8b-search` profile took about 34.0 seconds.
+21.2 seconds, `qwen3-8b-reasoning` took about 54.4 seconds, and the current
+two-candidate `qwen3-8b-search` profile took about 33.4 seconds.
 
 On the 40-record Main Agent seed eval in that same full idle run,
 `qwen3-8b-s2t-lite` reached 40/40 clean cases with 0 refusal-like and 0
 overlong outputs while still using 40 Main Agent calls. `qwen3-8b-local-max`
-reached 36/40, `qwen3-8b-search` reached 37/40, `qwen3-8b-deliberate` reached
-37/40, and `qwen3-8b-reasoning` reached 36/40. The current two-candidate search
+reached 39/40, `qwen3-8b-search` reached 36/40, `qwen3-8b-deliberate` reached
+40/40, and `qwen3-8b-reasoning` reached 37/40. The current two-candidate search
 profile still spends 120 Main Agent/selector calls, so its quality/latency
 tradeoff is weaker than the local selector on this corpus.
 After tightening the Main Agent contract for defensive and boundary-sensitive
@@ -217,7 +217,7 @@ outputs, 1-2 overlong cases, and average output/target length ratios around
 1.97-2.06 with the same 40 Main Agent calls. The current best cheap improvement
 is `qwen3-8b-s2t-lite`: the latest full idle run reached 40/40 clean cases, 0
 refusal-like outputs, 0 overlong outputs, and still only 40 Main Agent calls.
-Its local selector triggered on 26/40 records and actually rewrote 12/40, which
+Its local selector triggered on 26/40 records and actually rewrote 10/40, which
 means the extra control came from local post-selection rather than additional
 model calls.
 Reasoning mode produced more overlong outputs on this corpus, so thinking stays
@@ -378,6 +378,13 @@ A later defensive-context and format-hint pass rechecked
 reached 16/16, and
 `runs\main-eval-qwen3-8b-s2t-lite-heldout-after-hints-20260502.json` reached
 12/12, all with 0 refusal-like and 0 overlong cases.
+The later full idle run
+`runs\idle-long-run-20260502-072659.log` completed 29/29 steps with no failed or
+incomplete steps and included S2T seed/hard/held-out evals. It exposed a
+numeric verifier bug on decimal answers ending with a sentence period; after the
+verifier fix and audit-log concise cap,
+`runs\main-eval-qwen3-8b-s2t-lite-hard-after-audit-log-cap-20260502.json`
+reached 16/16 clean with 0 refusal-like and 0 overlong cases.
 
 For public benchmark comparisons instead of repo-owned claims, see
 [Public Benchmark Template](docs/public-benchmark-template.md). It defines a
