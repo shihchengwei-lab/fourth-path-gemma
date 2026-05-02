@@ -165,6 +165,11 @@ reason counts without printing prompt text, target text, or model output. Use it
 before adding more hard rows so the next data batch follows measured failures
 rather than guesses.
 
+The next targeted hard-data batch follows that report directly: code-repair rows
+with regex plus restricted Python tests, strict-format rows with one-line or JSON
+shape checks, and planning rows that require explicit data/verifier/evaluation
+terms without copying held-out prompts.
+
 ## Do Not Do Yet
 
 - Do not start KV-cache integration.

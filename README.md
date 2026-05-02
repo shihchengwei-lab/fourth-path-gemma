@@ -361,7 +361,7 @@ The original 40-record Main Agent seed eval is now saturated by
 new search, mux, or LoRA path:
 
 ```powershell
-python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 24 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 30 --min-category 2 --json
 python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
 ```
 
@@ -370,7 +370,7 @@ forbidden terms, regex constraints, and maximum output size. These verifier
 labels are reported as issue names only; the eval summary still omits prompts,
 targets, and model outputs.
 
-Latest release-gate rerun on this hard corpus:
+Earlier release-gate rerun on the older hard-corpus snapshot:
 `runs\release-gate-main-eval-hard-20260502.json` reached 16/16 clean,
 0 refusal-like, 0 overlong, and 16 total Main Agent calls. The same release
 gate also rechecked the original 40-record seed at
@@ -389,6 +389,11 @@ numeric verifier bug on decimal answers ending with a sentence period; after the
 verifier fix and audit-log concise cap,
 `runs\main-eval-qwen3-8b-s2t-lite-hard-after-audit-log-cap-20260502.json`
 reached 16/16 clean with 0 refusal-like and 0 overlong cases.
+
+The current hard corpus is larger than those runs: 30 verifier-backed rows,
+including targeted code-repair, strict-format, and planning cases derived from
+issue-label summaries rather than copied held-out prompts. Run a fresh hard eval
+before claiming this expanded corpus is saturated.
 
 For public benchmark comparisons instead of repo-owned claims, see
 [Public Benchmark Template](docs/public-benchmark-template.md). It defines a

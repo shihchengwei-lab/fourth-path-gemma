@@ -139,7 +139,7 @@ Do not implement live mux until these are true:
 Initial hard eval gate:
 
 ```powershell
-python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 24 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 30 --min-category 2 --json
 python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
 ```
 

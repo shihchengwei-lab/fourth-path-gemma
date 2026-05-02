@@ -410,19 +410,21 @@ def extract_numeric_tokens(text: str) -> set[str]:
 
 PYTHON_TEST_ALLOWED_BUILTINS = {
     "abs": abs,
+    "int": int,
     "len": len,
     "max": max,
     "min": min,
     "round": round,
     "sum": sum,
 }
-PYTHON_TEST_ALLOWED_METHODS = {"strip", "lower", "upper"}
+PYTHON_TEST_ALLOWED_METHODS = {"strip", "lower", "split", "upper"}
 PYTHON_TEST_ALLOWED_NODES = (
     ast.Module,
     ast.FunctionDef,
     ast.arguments,
     ast.arg,
     ast.Return,
+    ast.Assign,
     ast.If,
     ast.Compare,
     ast.Name,

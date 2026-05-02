@@ -110,7 +110,7 @@ Local format gates:
 
 ```powershell
 python main.py main-check --input-file data\main_agent_seed.jsonl --min-total 40 --min-category 1 --json
-python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 24 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 30 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_heldout_seed.jsonl --min-total 12 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_rotated_heldout_seed.jsonl --min-total 8 --min-category 2 --json
 python main.py distill-check --min-pass 19 --min-fail 25 --min-clause 8 --json

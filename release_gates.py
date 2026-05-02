@@ -302,7 +302,7 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
     )
     hard_check = apply_main_agent_requirements(
         check_main_agent_corpus(config.project_root / "data" / "main_agent_hard_seed.jsonl"),
-        min_total=24,
+        min_total=30,
         min_category=2,
     )
     heldout_check = apply_main_agent_requirements(

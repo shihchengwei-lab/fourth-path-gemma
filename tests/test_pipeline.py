@@ -2115,7 +2115,7 @@ class PipelineTests(unittest.TestCase):
         data = main.inference_compute_gate_data(main.PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl")
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["data_quality"]["total_records"], 84)
+        self.assertEqual(data["data_quality"]["total_records"], 90)
         self.assertEqual(data["verifier_tool"]["distill_total"], 44)
         self.assertEqual(
             data["adaptive_compute_plans"]["strict_output_shape"]["strategy"],
@@ -2136,11 +2136,11 @@ class PipelineTests(unittest.TestCase):
         self.assertGreaterEqual(data["architecture_adversarial"]["total"], 19)
         self.assertGreaterEqual(data["architecture_adversarial"]["layers"]["action"], 6)
         self.assertEqual(data["main_corpora"]["seed"]["total"], 40)
-        self.assertEqual(data["main_corpora"]["hard"]["total"], 24)
+        self.assertEqual(data["main_corpora"]["hard"]["total"], 30)
         self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
         self.assertEqual(data["main_corpora"]["rotated_heldout"]["total"], 8)
         self.assertEqual(data["data_quality"]["verifier_type_count"], 8)
-        self.assertEqual(data["sft_format"]["rows"], 84)
+        self.assertEqual(data["sft_format"]["rows"], 90)
         self.assertEqual(len(data["sft_format"]["source_paths"]), 4)
         self.assertEqual(data["sft_format"]["errors"], [])
         self.assertEqual(data["distill"]["total"], 44)
@@ -2267,19 +2267,32 @@ class PipelineTests(unittest.TestCase):
         result = main.check_main_agent_corpus(main.PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl")
 
         self.assertEqual(result.errors, [])
-        self.assertEqual(result.total, 24)
-        self.assertEqual(result.verifier_records, 24)
+        self.assertEqual(result.total, 30)
+        self.assertEqual(result.verifier_records, 30)
         self.assertGreaterEqual(result.categories["hard_math"], 6)
         self.assertGreaterEqual(result.categories["hard_code_repair"], 6)
+
+    def test_main_agent_hard_seed_targets_pass_verifiers(self):
+        records, errors, _ = main.load_main_agent_records(
+            main.PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl"
+        )
+
+        self.assertEqual(errors, [])
+        failures = {}
+        for record in records:
+            issues = main.main_verifier_issues(record.target_response, record.verifier)
+            if issues:
+                failures[record.record_id] = issues
+        self.assertEqual(failures, {})
 
     def test_main_data_quality_check_passes_default_corpora(self):
         data = main.main_data_quality_check_data(list(main.DEFAULT_MAIN_DATA_QUALITY_FILES))
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["total_records"], 84)
-        self.assertEqual(data["total_verifier_records"], 44)
+        self.assertEqual(data["total_records"], 90)
+        self.assertEqual(data["total_verifier_records"], 50)
         self.assertEqual(data["verifier_type_count"], 8)
-        self.assertEqual(data["verifier_type_totals"]["python_tests"], 4)
+        self.assertEqual(data["verifier_type_totals"]["python_tests"], 6)
         self.assertEqual(data["duplicate_ids"], [])
         self.assertEqual(data["duplicate_prompt_hashes"], [])
         by_name = {Path(file_data["path"]).name: file_data for file_data in data["files"]}
@@ -2483,6 +2496,27 @@ class PipelineTests(unittest.TestCase):
                 verifier,
             ),
             ["python_test_unsafe_syntax"],
+        )
+
+    def test_main_verifier_allows_assignment_and_split_for_small_repairs(self):
+        verifier = {
+            "python_tests": {
+                "function": "parse_metric",
+                "cases": [
+                    {"args": [" clean_cases : 12 "], "expected": {"clean_cases": 12}},
+                    {"args": ["latency:45"], "expected": {"latency": 45}},
+                ],
+            }
+        }
+
+        self.assertEqual(
+            main.main_verifier_issues(
+                'def parse_metric(line):\n'
+                '    name, value = line.split(":", 1)\n'
+                '    return {name.strip(): int(value.strip())}',
+                verifier,
+            ),
+            [],
         )
 
     def test_export_main_sft_writes_chat_messages(self):

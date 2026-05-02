@@ -443,7 +443,7 @@ For capability headroom after `qwen3-8b-s2t-lite` saturates the original
 40-record eval, use the harder verifier-backed corpus:
 
 ```powershell
-python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 24 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 30 --min-category 2 --json
 python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
 ```
 
@@ -571,9 +571,10 @@ Current hard-corpus measurement after the 2026-05-01 S2T/rStar-inspired pass:
   criteria, and concise defensive reporting. This is prompt-side distillation
   and local selection, not a Cold Eyes safety expansion.
 
-This means the present hard corpus is now saturated too. The next useful gate
-must be held out from these distilled hints, with more varied arithmetic,
-code-repair, open-ended planning, and near-boundary concise-helpfulness cases.
+That older hard-corpus snapshot was saturated too. The current hard corpus has
+since been expanded with targeted code-repair, strict-format, and planning rows
+derived from issue-label summaries. Run a fresh hard eval before treating the
+expanded corpus as saturated.
 
 The later full idle run `runs\idle-long-run-20260502-072659.log` added S2T
 seed/hard/held-out evals to the long runner and completed 29/29 steps. That run
