@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -13,12 +12,63 @@ import urllib.request
 import uuid
 from collections import Counter
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import main_agent_strategy as strategy
 
+from action_gate import (
+    ACTION_CANDIDATE_REQUIRED_FIELDS,
+    SIDE_EFFECT_BOUNDARY_POLICY,
+    action_audit_data,
+    action_candidate_from_dict,
+    action_candidate_text,
+    audit_action_candidate,
+    mechanical_action_audit,
+    read_file_target_scope_issue,
+    render_action_audit,
+)
+from core_types import ActionCandidate, ColdEyesVerdict, PipelineError, SetupError
+from idle_summary import (
+    IDLE_LOG_RE,
+    IDLE_STEP_END_RE,
+    IDLE_STEP_START_RE,
+    idle_artifact_profile,
+    idle_run_summary_data,
+    latest_idle_stamp,
+    load_idle_artifact,
+    read_text_with_bom,
+    render_idle_run_summary,
+    summarize_architecture_adversarial_artifact,
+    summarize_bench_artifact,
+    summarize_distill_eval_artifact,
+    summarize_idle_log,
+    summarize_main_eval_artifact,
+)
+from main_agent_data import (
+    MainAgentCheck,
+    MainAgentRecord,
+    apply_main_agent_requirements,
+    check_main_agent_corpus,
+    extract_numeric_tokens,
+    load_main_agent_records,
+    main_data_quality_check_data,
+    main_verifier_issues,
+    normalize_numeric_token,
+    render_main_agent_check,
+    render_main_data_quality_check,
+    stable_text_hash,
+    validate_main_agent_record,
+    validate_main_verifier,
+)
+from runtime_config import (
+    DEFAULT_MAX_ATTEMPTS as MAX_ATTEMPTS,
+    ModelOptions,
+    RoleRuntime,
+    RuntimeConfig,
+    build_runtime_profiles,
+)
 
 from audit.engine import run_audit
 
@@ -28,7 +78,6 @@ DEFAULT_MODEL = "gemma4:e4b"
 DEFAULT_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 DEFAULT_TIMEOUT_SECONDS = 600
 DEFAULT_KEEP_ALIVE = "5m"
-MAX_ATTEMPTS = 3
 DEFAULT_CONTRAST_EXPERT_PROFILE = "qwen3-8b-s2t-lite"
 DEFAULT_CONTRAST_AMATEUR_PROFILE = "qwen3-1.7b-amateur"
 DEFAULT_R2R_SMALL_PARAMS_B = 1.7
@@ -138,20 +187,6 @@ Fail only when the candidate output itself contains concrete actionable content
 that violates a canon clause.
 """
 
-SIDE_EFFECT_BOUNDARY_POLICY = """This prototype does not let the Main Agent execute tools, write files, send network requests, or perform other external side effects.
-Any future tool call or external side effect must first be represented as an auditable action candidate.
-Unaudited side effects must fail closed before execution.
-Cold Eyes output review is not sufficient for side effects that happen before output.
-"""
-
-ACTION_CANDIDATE_REQUIRED_FIELDS: tuple[str, ...] = (
-    "action_type",
-    "target",
-    "intent",
-    "args_summary",
-    "risk_surface",
-)
-
 COLD_EYES_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -177,6 +212,11 @@ QUALITY_SELECTOR_JSON_SCHEMA: dict[str, Any] = {
     "required": ["choice", "reason"],
     "additionalProperties": False,
 }
+
+RUNTIME_PROFILES: dict[str, RuntimeConfig] = build_runtime_profiles(
+    DEFAULT_MODEL,
+    COLD_EYES_JSON_SCHEMA,
+)
 
 DEFENSIVE_CONTEXT_PATTERNS: tuple[str, ...] = (
     r"\b(documented account recovery|verify ownership|rotate exposed|revok(e|ing) exposed)\b",
@@ -274,28 +314,11 @@ MECHANICAL_CANON_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-class SetupError(RuntimeError):
-    """Raised when the local model runtime is not ready."""
-
-
-class PipelineError(RuntimeError):
-    """Raised when the pipeline cannot complete a requested run."""
-
-
 @dataclass(frozen=True)
 class ClassifyResult:
     route: str
     canon_clause: str | None = None
     reason: str = ""
-
-
-@dataclass(frozen=True)
-class ColdEyesVerdict:
-    verdict: str
-    canon_clause: str | None
-    reason: str
-    raw: str
-    source: str = "llm"
 
 
 @dataclass(frozen=True)
@@ -316,234 +339,6 @@ class CandidateGeneration:
 
 
 LocalSelectionDecision = strategy.LocalSelectionDecision
-
-
-@dataclass(frozen=True)
-class ModelOptions:
-    num_ctx: int | None = None
-    num_predict: int | None = None
-    temperature: float | None = None
-    top_p: float | None = None
-    top_k: int | None = None
-    min_p: float | None = None
-
-    def payload(self) -> dict[str, int | float]:
-        data: dict[str, int | float] = {}
-        for key, value in {
-            "num_ctx": self.num_ctx,
-            "num_predict": self.num_predict,
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "top_k": self.top_k,
-            "min_p": self.min_p,
-        }.items():
-            if value is not None:
-                data[key] = value
-        return data
-
-
-@dataclass(frozen=True)
-class RoleRuntime:
-    model: str
-    options: ModelOptions = field(default_factory=ModelOptions)
-    no_think: bool = False
-    keep_alive: str | None = None
-    response_format: str | dict[str, Any] | None = None
-
-    def user_prompt(self, prompt: str) -> str:
-        if not self.no_think or "/no_think" in prompt.lower():
-            return prompt
-        return f"{prompt}\n\n/no_think"
-
-
-@dataclass(frozen=True)
-class RuntimeConfig:
-    main: RoleRuntime
-    audit: RoleRuntime
-    max_attempts: int = MAX_ATTEMPTS
-    quality_refine_passes: int = 0
-    search_candidates: int = 1
-    local_select: bool = False
-    adaptive_compute: bool = False
-
-
-RUNTIME_PROFILES: dict[str, RuntimeConfig] = {
-    "legacy": RuntimeConfig(
-        main=RoleRuntime(DEFAULT_MODEL),
-        audit=RoleRuntime(DEFAULT_MODEL, response_format=COLD_EYES_JSON_SCHEMA),
-    ),
-    "qwen3-8b-local-max": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, temperature=0.7, top_p=0.8, top_k=20),
-            no_think=True,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-    ),
-    "qwen3-8b-deliberate": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, temperature=0.7, top_p=0.8, top_k=20),
-            no_think=True,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-        quality_refine_passes=1,
-    ),
-    "qwen3-8b-s2t-lite": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, temperature=0.7, top_p=0.8, top_k=20),
-            no_think=True,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-        local_select=True,
-    ),
-    "qwen3-8b-compute-optimal-lite": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, temperature=0.7, top_p=0.8, top_k=20),
-            no_think=True,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-        local_select=True,
-        adaptive_compute=True,
-    ),
-    "qwen3-8b-reasoning": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, temperature=0.6, top_p=0.8, top_k=20),
-            no_think=False,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-    ),
-    "qwen3-8b-search": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, temperature=0.8, top_p=0.9, top_k=40),
-            no_think=True,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-        search_candidates=2,
-    ),
-    "qwen3-8b-split-audit": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, temperature=0.7, top_p=0.8, top_k=20),
-            no_think=True,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:1.7b",
-            ModelOptions(num_ctx=2048, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-    ),
-    "qwen3-1.7b-amateur": RuntimeConfig(
-        main=RoleRuntime(
-            "qwen3:1.7b",
-            ModelOptions(num_ctx=4096, temperature=0.7, top_p=0.8, top_k=20),
-            no_think=True,
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=1,
-    ),
-    "llama3.1-8b-candidate": RuntimeConfig(
-        main=RoleRuntime(
-            "llama3.1:8b",
-            ModelOptions(num_ctx=8192, temperature=0.7, top_p=0.9, top_k=40),
-            keep_alive="30m",
-        ),
-        audit=RoleRuntime(
-            "qwen3:8b",
-            ModelOptions(num_ctx=8192, num_predict=64, temperature=0.0, top_p=0.5, top_k=10),
-            no_think=True,
-            keep_alive="30m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-    ),
-    "gemma3-12b-pressure": RuntimeConfig(
-        main=RoleRuntime(
-            "gemma3:12b",
-            ModelOptions(num_ctx=4096, temperature=0.6, top_p=0.9),
-            keep_alive="10m",
-        ),
-        audit=RoleRuntime(
-            "gemma3:12b",
-            ModelOptions(num_ctx=4096, num_predict=96, temperature=0.0),
-            keep_alive="10m",
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-    ),
-    "gemma3-4b-compact": RuntimeConfig(
-        main=RoleRuntime("gemma3:4b", ModelOptions(num_ctx=8192, temperature=0.6, top_p=0.9)),
-        audit=RoleRuntime(
-            "gemma3:1b",
-            ModelOptions(num_ctx=2048, num_predict=160, temperature=0.0),
-            response_format=COLD_EYES_JSON_SCHEMA,
-        ),
-        max_attempts=2,
-    ),
-}
 
 
 @dataclass
@@ -675,37 +470,10 @@ class DistillCheck:
 
 
 @dataclass(frozen=True)
-class MainAgentCheck:
-    path: Path
-    total: int
-    categories: dict[str, int]
-    errors: list[str]
-    verifier_records: int = 0
-
-    def public_dict(self) -> dict[str, Any]:
-        return {
-            "path": str(self.path),
-            "total": self.total,
-            "categories": self.categories,
-            "verifier_records": self.verifier_records,
-            "errors": self.errors,
-        }
-
-
-@dataclass(frozen=True)
 class ArchitectureCheckItem:
     name: str
     passed: bool
     detail: str
-
-
-@dataclass(frozen=True)
-class MainAgentRecord:
-    record_id: str
-    category: str
-    prompt: str
-    target_response: str
-    verifier: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -718,15 +486,6 @@ class ArchitectureAdversarialRecord:
     expected_status: str | None = None
     expected_verdict: str | None = None
     expected_clause: str | None = None
-
-
-@dataclass(frozen=True)
-class ActionCandidate:
-    action_type: str
-    target: str
-    intent: str
-    args_summary: str
-    risk_surface: str
 
 
 @dataclass(frozen=True)
@@ -1601,144 +1360,6 @@ def parse_cold_eyes_json(raw: str) -> ColdEyesVerdict:
         verdict = "fail"
         reason = reason or "cold_eyes_inconsistent_pass_with_canon_clause"
     return ColdEyesVerdict(verdict, canon_clause, reason, raw)
-
-
-def action_candidate_from_dict(payload: dict[str, Any]) -> ActionCandidate:
-    return ActionCandidate(
-        action_type=str(payload["action_type"]).strip(),
-        target=str(payload["target"]).strip(),
-        intent=str(payload["intent"]).strip(),
-        args_summary=str(payload["args_summary"]).strip(),
-        risk_surface=str(payload["risk_surface"]).strip(),
-    )
-
-
-def action_candidate_text(action: ActionCandidate) -> str:
-    return "\n".join(
-        [
-            f"action_type: {action.action_type}",
-            f"target: {action.target}",
-            f"intent: {action.intent}",
-            f"args_summary: {action.args_summary}",
-            f"risk_surface: {action.risk_surface}",
-        ]
-    )
-
-
-def read_file_target_scope_issue(target: str) -> str | None:
-    normalized = target.strip().replace("\\", "/")
-    lowered = normalized.lower()
-    if not lowered:
-        return "read_target_empty"
-    if re.match(r"^[a-z]:/", lowered) or lowered.startswith(("/", "//", "~")):
-        return "read_target_not_project_relative"
-    if any(part == ".." for part in lowered.split("/")):
-        return "read_target_parent_traversal"
-    sensitive_patterns = (
-        r"(^|/)\.env(\.|$)",
-        r"(^|/)auth\.json$",
-        r"(^|/)id_rsa$",
-        r"(^|/)\.ssh(/|$)",
-        r"(^|/)credentials?(\.(json|toml|ya?ml)|$)",
-        r"(^|/)secrets?(\.(json|toml|ya?ml)|$)",
-    )
-    if _matches_any(lowered, sensitive_patterns):
-        return "read_target_sensitive_file"
-    return None
-
-
-def audit_action_candidate(action: ActionCandidate | None) -> ColdEyesVerdict:
-    if action is None:
-        return ColdEyesVerdict("fail", None, "action_candidate_missing", "", source="action_fail_closed")
-
-    mechanical = mechanical_action_audit(action)
-    if mechanical is not None:
-        return mechanical
-
-    return ColdEyesVerdict(
-        "fail",
-        None,
-        "action_audit_no_pass_rule",
-        action_candidate_text(action),
-        source="action_fail_closed",
-    )
-
-
-def action_audit_data(action: ActionCandidate) -> dict[str, Any]:
-    verdict = audit_action_candidate(action)
-    return {
-        "approved": verdict.verdict == "pass",
-        "verdict": verdict.verdict,
-        "canon_clause": verdict.canon_clause,
-        "reason": verdict.reason,
-        "source": verdict.source,
-        "action_type": action.action_type,
-        "risk_surface": action.risk_surface,
-    }
-
-
-def render_action_audit(data: dict[str, Any]) -> str:
-    status = "approved" if data["approved"] else "blocked"
-    clause = data["canon_clause"] if data["canon_clause"] is not None else "none"
-    return "\n".join(
-        [
-            f"Action audit: {status}",
-            f"Verdict: {data['verdict']}",
-            f"Canon clause: {clause}",
-            f"Source: {data['source']}",
-            f"Reason: {data['reason']}",
-        ]
-    )
-
-
-def mechanical_action_audit(action: ActionCandidate) -> ColdEyesVerdict | None:
-    text = action_candidate_text(action).lower()
-    action_type = action.action_type.strip().lower()
-    risk_surface = action.risk_surface.strip().lower()
-
-    if _matches_any(
-        text,
-        (
-            r"\b(weapon|explosive|bomb|poison|physical trap)\b",
-            r"\b(harm|injure|kill)\b.{0,80}\b(person|someone|target)\b",
-        ),
-    ):
-        return ColdEyesVerdict("fail", "C1", "action_mechanical_c1_high_confidence", text, source="action_mechanical")
-
-    if _matches_any(
-        text,
-        (
-            r"\b(phishing|impersonat(e|ing|ion)|fake support|pretext)\b",
-            r"\btrick\b.{0,80}\b(reveal|share|enter)\b.{0,40}\b(password|credential|code|otp|token)\b",
-        ),
-    ):
-        return ColdEyesVerdict("fail", "C3", "action_mechanical_c3_high_confidence", text, source="action_mechanical")
-
-    if _matches_any(
-        text,
-        (
-            r"\b(secret|credential|token|api key|cookie|session)\b.{0,80}\b(exfiltrate|upload|post|send|leak)\b",
-            r"\b(exfiltrate|upload|post|send|leak)\b.{0,80}\b(secret|credential|token|api key|cookie|session)\b",
-            r"\b(copy|steal|extract)\b.{0,80}\b(cookie|session token|credential|token)\b",
-            r"\b(remove-item|delete|del |erase|rm -rf)\b",
-            r"\b(canon|audit|refusal|review criteria|audit log)\b.{0,80}\b(write|modify|delete|overwrite|patch)\b",
-        ),
-    ):
-        return ColdEyesVerdict("fail", "C2", "action_mechanical_c2_high_confidence", text, source="action_mechanical")
-
-    if action_type == "noop" and risk_surface in {"none", "no_external_effect"}:
-        return ColdEyesVerdict("pass", None, "action_mechanical_noop", text, source="action_mechanical")
-
-    if action_type == "read_file":
-        read_issue = read_file_target_scope_issue(action.target)
-        if read_issue == "read_target_sensitive_file":
-            return ColdEyesVerdict("fail", "C2", read_issue, text, source="action_mechanical")
-        if read_issue is not None:
-            return ColdEyesVerdict("fail", None, read_issue, text, source="action_fail_closed")
-        if risk_surface == "read_only_project_file":
-            return ColdEyesVerdict("pass", None, "action_mechanical_read_only_project_file", text, source="action_mechanical")
-
-    return None
 
 
 def ns_to_ms(value: Any) -> int | None:
@@ -3586,311 +3207,6 @@ def benchmark_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def validate_main_agent_record(record: Any, index: int) -> list[str]:
-    prefix = f"line {index}"
-    if not isinstance(record, dict):
-        return [f"{prefix}: record must be an object"]
-
-    errors: list[str] = []
-    for field_name in ("id", "category", "prompt", "target_response"):
-        if not isinstance(record.get(field_name), str) or not record[field_name].strip():
-            errors.append(f"{prefix}: {field_name} must be a non-empty string")
-
-    if "candidate" in record:
-        errors.append(f"{prefix}: candidate is an evaluation output; use target_response for the seed answer")
-    if "output" in record:
-        errors.append(f"{prefix}: output is ambiguous; use target_response instead")
-    if "verifier" in record:
-        verifier = record.get("verifier")
-        if not isinstance(verifier, dict):
-            errors.append(f"{prefix}: verifier must be an object")
-        else:
-            errors.extend(validate_main_verifier(verifier, prefix))
-    return errors
-
-
-def validate_main_verifier(verifier: dict[str, Any], prefix: str) -> list[str]:
-    errors: list[str] = []
-    allowed = {
-        "required_terms",
-        "required_any",
-        "forbidden_terms",
-        "required_regex",
-        "forbidden_regex",
-        "numeric_answer",
-        "max_chars",
-    }
-    for field_name in sorted(set(verifier) - allowed):
-        errors.append(f"{prefix}: verifier.{field_name} is not supported")
-    for field_name in ("required_terms", "forbidden_terms", "required_regex", "forbidden_regex"):
-        value = verifier.get(field_name)
-        if value is None:
-            continue
-        if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
-            errors.append(f"{prefix}: verifier.{field_name} must be a list of non-empty strings")
-            continue
-        if field_name.endswith("_regex"):
-            for pattern in value:
-                try:
-                    re.compile(pattern)
-                except re.error as exc:
-                    errors.append(f"{prefix}: verifier.{field_name} contains invalid regex: {exc}")
-    required_any = verifier.get("required_any")
-    if required_any is not None:
-        if not isinstance(required_any, list) or not required_any:
-            errors.append(f"{prefix}: verifier.required_any must be a non-empty list of term groups")
-        else:
-            for group in required_any:
-                if not isinstance(group, list) or not all(
-                    isinstance(item, str) and item.strip() for item in group
-                ):
-                    errors.append(
-                        f"{prefix}: verifier.required_any must contain non-empty string groups"
-                    )
-                    break
-    if "numeric_answer" in verifier and not isinstance(verifier.get("numeric_answer"), (int, float, str)):
-        errors.append(f"{prefix}: verifier.numeric_answer must be a string or number")
-    if "max_chars" in verifier:
-        max_chars = verifier.get("max_chars")
-        if not isinstance(max_chars, int) or max_chars < 1:
-            errors.append(f"{prefix}: verifier.max_chars must be a positive integer")
-    return errors
-
-
-def load_main_agent_records(path: Path) -> tuple[list[MainAgentRecord], list[str], int]:
-    if not path.exists():
-        raise SetupError(f"Main Agent corpus not found: {path}")
-
-    records: list[MainAgentRecord] = []
-    errors: list[str] = []
-    total = 0
-
-    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        total += 1
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as exc:
-            errors.append(f"line {index}: invalid JSON: {exc.msg}")
-            continue
-
-        record_errors = validate_main_agent_record(record, index)
-        errors.extend(record_errors)
-        if not record_errors and isinstance(record, dict):
-            records.append(
-                MainAgentRecord(
-                    record_id=record["id"].strip(),
-                    category=record["category"].strip(),
-                    prompt=record["prompt"].strip(),
-                    target_response=record["target_response"].strip(),
-                    verifier=dict(record.get("verifier") or {}),
-                )
-            )
-
-    if total == 0:
-        errors.append("corpus is empty")
-    return records, errors, total
-
-
-def check_main_agent_corpus(path: Path) -> MainAgentCheck:
-    records, errors, total = load_main_agent_records(path)
-    categories: dict[str, int] = {}
-    for record in records:
-        categories[record.category] = categories.get(record.category, 0) + 1
-    return MainAgentCheck(
-        path,
-        total,
-        dict(sorted(categories.items())),
-        errors,
-        verifier_records=sum(bool(record.verifier) for record in records),
-    )
-
-
-def apply_main_agent_requirements(
-    result: MainAgentCheck,
-    min_total: int = 0,
-    min_category: int = 0,
-) -> MainAgentCheck:
-    errors = list(result.errors)
-    if result.total < min_total:
-        errors.append(f"records below minimum: {result.total} < {min_total}")
-    for category, count in result.categories.items():
-        if count < min_category:
-            errors.append(f"{category} records below minimum: {count} < {min_category}")
-    return MainAgentCheck(
-        result.path,
-        result.total,
-        result.categories,
-        errors,
-        result.verifier_records,
-    )
-
-
-def render_main_agent_check(result: MainAgentCheck) -> str:
-    status = "ok" if not result.errors else "error"
-    lines = [
-        f"Main Agent corpus: {result.path}",
-        f"Status: {status}",
-        f"Records: {result.total}",
-        f"Verifier records: {result.verifier_records}",
-        "Categories:",
-    ]
-    lines.extend(f"- {category}: {count}" for category, count in result.categories.items())
-    if result.errors:
-        lines.extend(["", "Errors:"])
-        lines.extend(f"- {error}" for error in result.errors)
-    return "\n".join(lines)
-
-
-def stable_text_hash(text: str) -> str:
-    normalized = re.sub(r"\s+", " ", text.strip().casefold())
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
-
-
-def main_data_quality_check_data(
-    paths: list[Path],
-    require_verifier_patterns: tuple[str, ...] = ("hard", "heldout"),
-    max_category_share: float = 0.5,
-    min_records_for_category_balance: int = 8,
-    min_verifier_types: int = 3,
-) -> dict[str, Any]:
-    errors: list[str] = []
-    files: list[dict[str, Any]] = []
-    seen_ids: dict[str, str] = {}
-    seen_prompts: dict[str, tuple[str, str]] = {}
-    duplicate_ids: list[str] = []
-    duplicate_prompt_hashes: list[str] = []
-    total_records = 0
-    total_verifier_records = 0
-
-    if not 0 < max_category_share <= 1:
-        errors.append("--max-category-share must be greater than 0 and at most 1")
-    if min_records_for_category_balance < 1:
-        errors.append("--min-records-for-category-balance must be at least 1")
-    if min_verifier_types < 1:
-        errors.append("--min-verifier-types must be at least 1")
-
-    for path in paths:
-        records, load_errors, total = load_main_agent_records(path)
-        errors.extend(f"{path}: {error}" for error in load_errors)
-        total_records += total
-        verifier_records = sum(bool(record.verifier) for record in records)
-        total_verifier_records += verifier_records
-        categories = sorted_count_by(record.category for record in records)
-        verifier_type_counts = Counter(
-            verifier_name
-            for record in records
-            for verifier_name, verifier_value in record.verifier.items()
-            if verifier_value
-        )
-        requires_verifier = any(pattern in path.name for pattern in require_verifier_patterns)
-        all_missing_verifier_ids = [record.record_id for record in records if not record.verifier]
-        missing_verifier_ids = all_missing_verifier_ids if requires_verifier else []
-        dominant_category = None
-        dominant_category_share = 0.0
-        category_balance_checked = total >= min_records_for_category_balance and bool(categories)
-
-        if categories:
-            dominant_category, dominant_count = max(categories.items(), key=lambda item: (item[1], item[0]))
-            dominant_category_share = round(safe_ratio(dominant_count, total), 3)
-        if category_balance_checked and dominant_category_share > max_category_share:
-            errors.append(
-                f"{path}: dominant category {dominant_category} covers "
-                f"{dominant_category_share:.3f} of records; limit is {max_category_share:.3f}"
-            )
-
-        if requires_verifier and missing_verifier_ids:
-            errors.append(
-                f"{path}: verifier required but missing for {len(missing_verifier_ids)} records"
-            )
-        if requires_verifier and verifier_records and len(verifier_type_counts) < min_verifier_types:
-            errors.append(
-                f"{path}: verifier diversity has {len(verifier_type_counts)} type(s); "
-                f"minimum is {min_verifier_types}"
-            )
-
-        for record in records:
-            previous_path = seen_ids.get(record.record_id)
-            if previous_path is not None:
-                duplicate_ids.append(record.record_id)
-                errors.append(
-                    f"duplicate id across corpora: {record.record_id} in {previous_path} and {path}"
-                )
-            else:
-                seen_ids[record.record_id] = str(path)
-
-            prompt_hash = stable_text_hash(record.prompt)
-            previous_prompt = seen_prompts.get(prompt_hash)
-            if previous_prompt is not None:
-                duplicate_prompt_hashes.append(prompt_hash)
-                previous_id, previous_prompt_path = previous_prompt
-                errors.append(
-                    "duplicate prompt across corpora: "
-                    f"hash={prompt_hash} ids={previous_id},{record.record_id} "
-                    f"paths={previous_prompt_path},{path}"
-                )
-            else:
-                seen_prompts[prompt_hash] = (record.record_id, str(path))
-
-        files.append(
-            {
-                "path": str(path),
-                "total": total,
-                "categories": categories,
-                "dominant_category": dominant_category,
-                "dominant_category_share": dominant_category_share,
-                "category_balance_checked": category_balance_checked,
-                "max_category_share": max_category_share,
-                "verifier_records": verifier_records,
-                "verifier_rate": round(safe_ratio(verifier_records, total), 3),
-                "verifier_type_counts": dict(sorted(verifier_type_counts.items())),
-                "verifier_type_count": len(verifier_type_counts),
-                "min_verifier_types": min_verifier_types,
-                "unverified_records": len(all_missing_verifier_ids),
-                "requires_verifier": requires_verifier,
-                "missing_verifier_ids": missing_verifier_ids,
-            }
-        )
-
-    return {
-        "files": files,
-        "total_records": total_records,
-        "total_verifier_records": total_verifier_records,
-        "overall_verifier_rate": round(safe_ratio(total_verifier_records, total_records), 3),
-        "duplicate_ids": sorted(set(duplicate_ids)),
-        "duplicate_prompt_hashes": sorted(set(duplicate_prompt_hashes)),
-        "require_verifier_patterns": list(require_verifier_patterns),
-        "max_category_share": max_category_share,
-        "min_records_for_category_balance": min_records_for_category_balance,
-        "min_verifier_types": min_verifier_types,
-        "errors": errors,
-    }
-
-
-def render_main_data_quality_check(data: dict[str, Any]) -> str:
-    status = "ok" if not data["errors"] else "error"
-    lines = [
-        f"Main Agent data quality: {status}",
-        f"Records: {data['total_records']}",
-        f"Verifier records: {data['total_verifier_records']} ({data['overall_verifier_rate']:.3f})",
-        "Files:",
-    ]
-    for file_data in data["files"]:
-        lines.append(
-            "- {path}: total={total}, verifier={verifier_records} ({verifier_rate:.3f}), "
-            "types={verifier_type_count}, dominant={dominant_category} "
-            "({dominant_category_share:.3f}), unverified={unverified_records}, "
-            "requires_verifier={requires_verifier}".format(**file_data)
-        )
-    if data["duplicate_ids"] or data["duplicate_prompt_hashes"]:
-        lines.append("Duplicates detected.")
-    if data["errors"]:
-        lines.extend(["", "Errors:"])
-        lines.extend(f"- {error}" for error in data["errors"])
-    return "\n".join(lines)
-
-
 def main_check_command(args: argparse.Namespace) -> int:
     result = apply_main_agent_requirements(
         check_main_agent_corpus(Path(args.input_file)),
@@ -4008,57 +3324,6 @@ def main_candidate_issues(
         target_chars = max(1, len(target_response))
         if len(text) / target_chars > max_length_ratio:
             issues.append("overlong_candidate")
-    return list(dict.fromkeys(issues))
-
-
-def normalize_numeric_token(value: str | int | float) -> str:
-    text = str(value).strip()
-    try:
-        number = float(text)
-    except ValueError:
-        return text
-    if number.is_integer():
-        return str(int(number))
-    return f"{number:.8g}"
-
-
-def extract_numeric_tokens(text: str) -> set[str]:
-    values: set[str] = set()
-    for match in re.finditer(r"(?<![\w.])-?\d+(?:\.\d+)?(?!\w)", text):
-        values.add(normalize_numeric_token(match.group(0)))
-    return values
-
-
-def main_verifier_issues(text: str, verifier: dict[str, Any]) -> list[str]:
-    issues: list[str] = []
-    lower = text.lower()
-    for term in verifier.get("required_terms", []):
-        if term.lower() not in lower:
-            issues.append("missing_required_term")
-            break
-    for group in verifier.get("required_any", []):
-        if not any(term.lower() in lower for term in group):
-            issues.append("missing_required_any")
-            break
-    for term in verifier.get("forbidden_terms", []):
-        if term.lower() in lower:
-            issues.append("forbidden_term_present")
-            break
-    for pattern in verifier.get("required_regex", []):
-        if re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE) is None:
-            issues.append("missing_required_pattern")
-            break
-    for pattern in verifier.get("forbidden_regex", []):
-        if re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE) is not None:
-            issues.append("forbidden_pattern_present")
-            break
-    if "numeric_answer" in verifier:
-        expected = normalize_numeric_token(verifier["numeric_answer"])
-        if expected not in extract_numeric_tokens(text):
-            issues.append("numeric_answer_mismatch")
-    max_chars = verifier.get("max_chars")
-    if isinstance(max_chars, int) and len(text) > max_chars:
-        issues.append("verifier_max_chars_exceeded")
     return list(dict.fromkeys(issues))
 
 
@@ -6704,299 +5969,6 @@ def distill_eval_command(args: argparse.Namespace) -> int:
 
     print_json_or_text(data, args.json, render_distill_eval(data, path))
     return 1 if data["gate_errors"] else 0
-
-
-IDLE_LOG_RE = re.compile(r"^idle-long-run-(?P<stamp>\d{8}-\d{6})\.log$")
-IDLE_STEP_START_RE = re.compile(r"^\[(?P<time>[^\]]+)\] START (?P<name>.+)$")
-IDLE_STEP_END_RE = re.compile(
-    r"^\[(?P<time>[^\]]+)\] END (?P<name>.+) exit=(?P<exit>-?\d+) seconds=(?P<seconds>\d+)$"
-)
-
-
-def idle_artifact_profile(path: Path, prefix: str, stamp: str) -> str:
-    stem = path.stem
-    full_prefix = f"{prefix}-"
-    suffix = f"-idle-{stamp}"
-    if stem.startswith(full_prefix) and stem.endswith(suffix):
-        return stem[len(full_prefix) : -len(suffix)]
-    return stem
-
-
-def latest_idle_stamp(runs_dir: Path) -> str | None:
-    candidates: list[tuple[float, str]] = []
-    for path in runs_dir.glob("idle-long-run-*.log"):
-        match = IDLE_LOG_RE.match(path.name)
-        if match:
-            candidates.append((path.stat().st_mtime, match.group("stamp")))
-    if not candidates:
-        return None
-    return max(candidates)[1]
-
-
-def summarize_idle_log(log_path: Path) -> dict[str, Any]:
-    steps: list[dict[str, Any]] = []
-    step_by_name: dict[str, dict[str, Any]] = {}
-    started_at = ""
-    completed_at = ""
-    for line in read_text_with_bom(log_path).splitlines():
-        if line.startswith("Idle long run started at "):
-            started_at = line.removeprefix("Idle long run started at ").strip()
-            continue
-        if line.startswith("Idle long run completed at "):
-            completed_at = line.removeprefix("Idle long run completed at ").strip()
-            continue
-        start_match = IDLE_STEP_START_RE.match(line)
-        if start_match:
-            step = {
-                "name": start_match.group("name"),
-                "started_at": start_match.group("time"),
-                "ended_at": "",
-                "exit_code": None,
-                "seconds": None,
-            }
-            steps.append(step)
-            step_by_name[step["name"]] = step
-            continue
-        end_match = IDLE_STEP_END_RE.match(line)
-        if end_match:
-            name = end_match.group("name")
-            step = step_by_name.get(name)
-            if step is None:
-                step = {"name": name, "started_at": "", "ended_at": "", "exit_code": None, "seconds": None}
-                steps.append(step)
-                step_by_name[name] = step
-            step["ended_at"] = end_match.group("time")
-            step["exit_code"] = int(end_match.group("exit"))
-            step["seconds"] = int(end_match.group("seconds"))
-
-    failed_steps = [step for step in steps if step.get("exit_code") not in (0, None)]
-    incomplete_steps = [step for step in steps if step.get("exit_code") is None]
-    return {
-        "path": str(log_path),
-        "started_at": started_at,
-        "completed_at": completed_at,
-        "completed": bool(completed_at),
-        "step_count": len(steps),
-        "failed_steps": failed_steps,
-        "incomplete_steps": incomplete_steps,
-        "total_step_seconds": sum(step.get("seconds") or 0 for step in steps),
-        "steps": steps,
-    }
-
-
-def read_text_with_bom(path: Path) -> str:
-    raw = path.read_bytes()
-    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
-        return raw.decode("utf-16", errors="replace")
-    if raw.startswith(b"\xef\xbb\xbf"):
-        return raw.decode("utf-8-sig", errors="replace")
-    return raw.decode("utf-8", errors="replace")
-
-
-def load_idle_artifact(path: Path) -> tuple[dict[str, Any] | None, str | None]:
-    try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        return None, f"{path}: read failed: {exc}"
-    except json.JSONDecodeError as exc:
-        return None, f"{path}: invalid JSON at line {exc.lineno}: {exc.msg}"
-    if not isinstance(loaded, dict):
-        return None, f"{path}: expected JSON object"
-    return loaded, None
-
-
-def summarize_bench_artifact(path: Path, stamp: str, data: dict[str, Any]) -> dict[str, Any]:
-    status_counts = Counter(
-        case.get("status", "unknown") for case in data.get("cases", []) if isinstance(case, dict)
-    )
-    return {
-        "path": str(path),
-        "profile": idle_artifact_profile(path, "bench", stamp),
-        "total_cases": data.get("total_cases", 0),
-        "pass_count": data.get("pass_count", 0),
-        "refused_count": data.get("refused_count", 0),
-        "status_counts": dict(status_counts),
-        "total_main_calls": data.get("total_main_calls", 0),
-        "average_main_calls_per_case": data.get("average_main_calls_per_case", 0),
-        "total_duration_ms": data.get("total_duration_ms", 0),
-    }
-
-
-def summarize_main_eval_artifact(path: Path, stamp: str, data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "path": str(path),
-        "profile": idle_artifact_profile(path, "main-eval", stamp),
-        "total": data.get("total", 0),
-        "clean_count": data.get("clean_count", 0),
-        "issue_cases": data.get("issue_cases", 0),
-        "refusal_like_count": data.get("refusal_like_count", 0),
-        "overlong_count": data.get("overlong_count", 0),
-        "average_length_ratio": data.get("average_length_ratio", 0),
-        "issue_counts": data.get("issue_counts", {}),
-        "category_issue_counts": data.get("category_issue_counts", {}),
-        "local_selection_triggered_count": data.get("local_selection_triggered_count", 0),
-        "local_selection_applied_count": data.get("local_selection_applied_count", 0),
-        "total_main_calls": data.get("total_main_calls", 0),
-        "clean_per_main_call": data.get("clean_per_main_call", 0),
-        "total_duration_ms": data.get("total_duration_ms", 0),
-    }
-
-
-def summarize_architecture_adversarial_artifact(path: Path, stamp: str, data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "path": str(path),
-        "profile": idle_artifact_profile(path, "architecture-adversarial-eval", stamp),
-        "total": data.get("total", 0),
-        "passed": data.get("passed", 0),
-        "failed": data.get("failed", 0),
-        "pass_rate": data.get("pass_rate", 0),
-        "layer_counts": data.get("layer_counts", {}),
-        "layer_passed": data.get("layer_passed", {}),
-        "issue_counts": data.get("issue_counts", {}),
-        "audit_source_counts": data.get("audit_source_counts", {}),
-        "total_main_calls": data.get("total_main_calls", 0),
-        "total_duration_ms": data.get("total_duration_ms", 0),
-    }
-
-
-def summarize_distill_eval_artifact(path: Path, stamp: str, data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "path": str(path),
-        "profile": idle_artifact_profile(path, "distill-eval", stamp),
-        "audit_model": data.get("audit_model", ""),
-        "total": data.get("total", 0),
-        "verdict_matches": data.get("verdict_matches", 0),
-        "exact_matches": data.get("exact_matches", 0),
-        "partial_matches": data.get("partial_matches", 0),
-        "verdict_misses": data.get("verdict_misses", 0),
-        "mechanical_cases": data.get("mechanical_cases", 0),
-        "llm_cases": data.get("llm_cases", 0),
-        "mismatch_count": len(data.get("mismatches", [])),
-        "mismatch_counts_by_expected_clause": data.get("mismatch_counts_by_expected_clause", {}),
-        "exact_accuracy": data.get("exact_accuracy", 0),
-        "total_duration_ms": data.get("total_duration_ms", 0),
-    }
-
-
-def idle_run_summary_data(runs_dir: Path, stamp: str | None = None) -> dict[str, Any]:
-    stamp = stamp or latest_idle_stamp(runs_dir)
-    if stamp is None:
-        return {
-            "runs_dir": str(runs_dir),
-            "stamp": None,
-            "completed": False,
-            "errors": [f"no idle-long-run-*.log found under {runs_dir}"],
-        }
-
-    log_path = runs_dir / f"idle-long-run-{stamp}.log"
-    errors: list[str] = []
-    log_summary: dict[str, Any]
-    if log_path.exists():
-        log_summary = summarize_idle_log(log_path)
-        if not log_summary["completed"]:
-            errors.append(f"{log_path}: run did not record completion")
-        for step in log_summary["failed_steps"]:
-            errors.append(f"{log_path}: step failed: {step['name']} exit={step['exit_code']}")
-        for step in log_summary["incomplete_steps"]:
-            errors.append(f"{log_path}: step incomplete: {step['name']}")
-    else:
-        log_summary = {
-            "path": str(log_path),
-            "started_at": "",
-            "completed_at": "",
-            "completed": False,
-            "step_count": 0,
-            "failed_steps": [],
-            "incomplete_steps": [],
-            "total_step_seconds": 0,
-            "steps": [],
-        }
-        errors.append(f"{log_path}: missing idle long-run log")
-
-    artifacts: dict[str, Any] = {
-        "architecture_adversarial": [],
-        "main_eval": [],
-        "bench": [],
-        "distill_eval": [],
-        "unknown": [],
-    }
-    for path in sorted(runs_dir.glob(f"*-idle-{stamp}.json")):
-        loaded, error = load_idle_artifact(path)
-        if error:
-            errors.append(error)
-            continue
-        assert loaded is not None
-        name = path.name
-        if name.startswith("architecture-adversarial-eval-"):
-            artifacts["architecture_adversarial"].append(
-                summarize_architecture_adversarial_artifact(path, stamp, loaded)
-            )
-        elif name.startswith("main-eval-"):
-            artifacts["main_eval"].append(summarize_main_eval_artifact(path, stamp, loaded))
-        elif name.startswith("bench-"):
-            artifacts["bench"].append(summarize_bench_artifact(path, stamp, loaded))
-        elif name.startswith("distill-eval-"):
-            artifacts["distill_eval"].append(summarize_distill_eval_artifact(path, stamp, loaded))
-        else:
-            artifacts["unknown"].append(str(path))
-
-    return {
-        "runs_dir": str(runs_dir),
-        "stamp": stamp,
-        "completed": bool(log_summary["completed"]) and not errors,
-        "log": log_summary,
-        "artifacts": artifacts,
-        "errors": errors,
-    }
-
-
-def render_idle_run_summary(data: dict[str, Any]) -> str:
-    lines = [
-        f"Idle run summary: {data.get('stamp')}",
-        f"Log: {data.get('log', {}).get('path', '')}",
-        f"Completed: {'yes' if data.get('completed') else 'no'}",
-    ]
-    log = data.get("log", {})
-    if log:
-        lines.append(
-            f"Steps: {log.get('step_count', 0)}, failed={len(log.get('failed_steps', []))}, "
-            f"incomplete={len(log.get('incomplete_steps', []))}, seconds={log.get('total_step_seconds', 0)}"
-        )
-
-    artifacts = data.get("artifacts", {})
-    if artifacts.get("architecture_adversarial"):
-        lines.extend(["", "Architecture adversarial eval:"])
-        for item in artifacts["architecture_adversarial"]:
-            lines.append(
-                "- {profile}: passed {passed}/{total}, failed={failed}, calls={total_main_calls}, ms={total_duration_ms}".format(
-                    **item
-                )
-            )
-    if artifacts.get("main_eval"):
-        lines.extend(["", "Main eval:"])
-        for item in artifacts["main_eval"]:
-            lines.append(
-                "- {profile}: clean {clean_count}/{total}, issues={issue_cases}, refusals={refusal_like_count}, "
-                "overlong={overlong_count}, calls={total_main_calls}, ms={total_duration_ms}".format(**item)
-            )
-    if artifacts.get("bench"):
-        lines.extend(["", "Bench:"])
-        for item in artifacts["bench"]:
-            lines.append(
-                "- {profile}: pass {pass_count}/{total_cases}, refused={refused_count}, "
-                "calls={total_main_calls}, ms={total_duration_ms}".format(**item)
-            )
-    if artifacts.get("distill_eval"):
-        lines.extend(["", "Distill eval:"])
-        for item in artifacts["distill_eval"]:
-            lines.append(
-                "- {profile}: exact {exact_matches}/{total}, mechanical={mechanical_cases}, "
-                "llm={llm_cases}, mismatches={mismatch_count}, ms={total_duration_ms}".format(**item)
-            )
-    if data.get("errors"):
-        lines.extend(["", "Errors:"])
-        lines.extend(f"- {error}" for error in data["errors"])
-    return "\n".join(lines)
 
 
 def idle_run_summary_command(args: argparse.Namespace) -> int:
