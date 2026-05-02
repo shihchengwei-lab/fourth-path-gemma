@@ -117,6 +117,10 @@ See [Distillation-First Roadmap](docs/distillation-first-roadmap.md) for the
 current priority order: data quality, format, verifier/tool-use,
 inference-time compute, then KV cache work.
 
+See [Research Next Steps](docs/research-next-steps.md) for the 2026-05-02
+bounded paper pass that turns current distillation, verifier, test-time
+compute, and KV-cache papers into the next implementation backlog.
+
 See [llama.cpp TurboQuant Reference Notes](docs/llama-cpp-turboquant-backend.md)
 for the deferred reference-only KV-cache backend notes.
 
