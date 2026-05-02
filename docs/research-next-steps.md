@@ -156,6 +156,9 @@ Do these before another architecture refactor round:
    2026-05-02: `main-latent-headroom` plus
    `data/main_agent_latent_probe_seed.jsonl`; local-max reached first-pass 2/8,
    any-clean 3/8, latent-rescued 1/8.)
+9. Use current external teacher endpoints only as verifier-filtered data sources,
+   not as runtime dependencies. (Initial hook: `main-nvidia-teacher-export`,
+   defaulting to DeepSeek V3.2 and MiniMax M2.7 first.)
 
 Local implementation hooks now exist for this backlog:
 
@@ -168,6 +171,7 @@ Local implementation hooks now exist for this backlog:
 - `main-eval-ablation`
 - `main-eval-failure-report`
 - `main-latent-headroom`
+- `main-nvidia-teacher-export`
 
 The newest no-Ollama bridge is `main-eval-failure-report`. It reads a saved
 `main-eval` or `main-eval-ablation` JSON file and turns it into issue counts,

@@ -58,6 +58,9 @@ Near-term work:
 - prefer small, high-confidence rows over broad low-quality corpora;
 - split rows by capability target: format, code repair, numeric reasoning,
   planning, and defensive concise helpfulness.
+- when an external teacher endpoint is available, generate only opt-in
+  verifier-backed rows and keep rejected outputs as issue labels, not training
+  targets.
 
 Acceptance gate:
 
@@ -71,6 +74,19 @@ Local quality gate:
 python main.py main-data-quality-report --json
 python main.py main-data-quality-check --json
 ```
+
+External teacher data can be generated from NVIDIA-hosted OpenAI-compatible
+endpoints, with the API key read only from `NVIDIA_API_KEY`:
+
+```powershell
+python main.py main-nvidia-teacher-export --input-file data\main_agent_hard_seed.jsonl --limit-records 3 --samples-per-model 1 --json --timeout 1200
+python main.py main-training-data-report --input-file runs\main-agent-nvidia-teacher.jsonl --require-system --require-generated-metadata --json
+```
+
+The default order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3 Super 120B-A12B,
+GPT-OSS 120B, then Qwen3-Next 80B-A3B. The command continues past a failed
+teacher endpoint by default and writes only local-verifier-passing rows to
+git-ignored `runs/`.
 
 This checks the current seed, hard, held-out, rotated held-out, and fresh
 held-out corpora together for duplicate ids, duplicate prompt hashes,

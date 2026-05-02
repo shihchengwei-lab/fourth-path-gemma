@@ -132,6 +132,14 @@ from main_eval import (
     run_main_eval_ablation_core,
     run_main_eval_core,
 )
+from nvidia_teacher import (
+    DEFAULT_NVIDIA_BASE_URL,
+    DEFAULT_NVIDIA_TEACHER_MODELS,
+    NvidiaTeacherClient,
+    normalize_nvidia_base_url,
+    render_nvidia_teacher_export,
+    run_nvidia_teacher_export,
+)
 from output_utils import elapsed_ms, new_run_id, print_json_or_text, write_json_summary
 from runtime_config import (
     DEFAULT_MAX_ATTEMPTS as MAX_ATTEMPTS,
@@ -2520,6 +2528,35 @@ def main_r1_sample_export_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def main_nvidia_teacher_export_command(args: argparse.Namespace) -> int:
+    records, errors, total = load_main_agent_records(Path(args.input_file))
+    if errors:
+        result = MainAgentCheck(Path(args.input_file), total, {}, errors)
+        print_json_or_text(result.public_dict(), args.json, render_main_agent_check(result))
+        return 1
+
+    client = NvidiaTeacherClient.from_env(timeout=args.timeout)
+    data = run_nvidia_teacher_export(
+        client=client,
+        records=records,
+        output_file=Path(args.output_file),
+        teacher_models=args.model or DEFAULT_NVIDIA_TEACHER_MODELS,
+        samples_per_model=args.samples_per_model,
+        min_reward=args.min_reward,
+        max_length_ratio=args.max_length_ratio,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        include_system=not args.no_system,
+        main_agent_system_prompt=MAIN_AGENT_SYSTEM_PROMPT,
+        candidate_issues=main_candidate_issues,
+        verifier_issues=main_verifier_issues,
+        limit_records=args.limit_records,
+        continue_on_error=not args.stop_on_error,
+    )
+    print_json_or_text(data, args.json, render_nvidia_teacher_export(data))
+    return 0
+
+
 def main_limo_curate_command(args: argparse.Namespace) -> int:
     rows, errors, total = load_sft_jsonl_rows(Path(args.input_file))
     if errors:
@@ -3325,6 +3362,7 @@ def command_handlers() -> dict[str, Any]:
         "main-sft-export": main_sft_export_command,
         "main-contrast-export": main_contrast_export_command,
         "main-r1-sample-export": main_r1_sample_export_command,
+        "main-nvidia-teacher-export": main_nvidia_teacher_export_command,
         "main-limo-curate": main_limo_curate_command,
         "main-mix-distill-curate": main_mix_distill_curate_command,
         "main-training-data-report": main_training_data_report_command,

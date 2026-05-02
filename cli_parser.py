@@ -20,6 +20,7 @@ from compute_gates import (
 )
 from core_types import SetupError
 from latent_headroom import DEFAULT_LATENT_HEADROOM_VARIANTS
+from nvidia_teacher import DEFAULT_NVIDIA_TEACHER_MODELS
 from runtime_config import ModelOptions, RoleRuntime, RuntimeConfig
 
 
@@ -504,6 +505,67 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
     main_r1.add_argument("--ollama-host", default=config.default_ollama_host, help="Ollama host URL.")
     main_r1.add_argument("--timeout", type=int, default=config.default_timeout_seconds, help="Ollama timeout seconds.")
     main_r1.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
+    main_nvidia = subparsers.add_parser(
+        "main-nvidia-teacher-export",
+        help="Export local-verifier-filtered Main Agent SFT rows from NVIDIA-hosted teacher models.",
+    )
+    main_nvidia.add_argument(
+        "--input-file",
+        default=str(config.project_root / "data" / "main_agent_hard_seed.jsonl"),
+        help="Verifier-backed JSONL corpus path. Default: data/main_agent_hard_seed.jsonl.",
+    )
+    main_nvidia.add_argument(
+        "--output-file",
+        default=str(config.project_root / "runs" / "main-agent-nvidia-teacher.jsonl"),
+        help="Output JSONL path. Default: runs/main-agent-nvidia-teacher.jsonl.",
+    )
+    main_nvidia.add_argument(
+        "--model",
+        action="append",
+        help=(
+            "NVIDIA model id. Repeat to override the default order: "
+            + ", ".join(DEFAULT_NVIDIA_TEACHER_MODELS)
+            + "."
+        ),
+    )
+    main_nvidia.add_argument(
+        "--samples-per-model",
+        type=int,
+        default=1,
+        help="How many teacher samples to request per model and record. Default: 1.",
+    )
+    main_nvidia.add_argument(
+        "--min-reward",
+        type=float,
+        default=1.0,
+        help="Minimum local verifier reward required for export. Default: 1.0.",
+    )
+    main_nvidia.add_argument(
+        "--max-length-ratio",
+        type=float,
+        help="Treat outputs longer than this output/target character ratio as issues.",
+    )
+    main_nvidia.add_argument("--temperature", type=float, default=0.2, help="Teacher sampling temperature. Default: 0.2.")
+    main_nvidia.add_argument("--max-tokens", type=int, default=512, help="Teacher maximum generated tokens. Default: 512.")
+    main_nvidia.add_argument(
+        "--limit-records",
+        type=int,
+        default=0,
+        help="Optional first-N record cap for urgent API-budget runs. Default: 0 means all records.",
+    )
+    main_nvidia.add_argument(
+        "--no-system",
+        action="store_true",
+        help="Omit the Main Agent system prompt from exported messages.",
+    )
+    main_nvidia.add_argument(
+        "--stop-on-error",
+        action="store_true",
+        help="Stop at the first NVIDIA request error instead of continuing to the next model/sample.",
+    )
+    main_nvidia.add_argument("--timeout", type=int, default=config.default_timeout_seconds, help="NVIDIA API timeout seconds.")
+    main_nvidia.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     main_limo = subparsers.add_parser(
         "main-limo-curate",

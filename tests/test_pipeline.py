@@ -23,6 +23,30 @@ class FakeWarmClient:
         return {"load_ms": 1, "prompt_eval_ms": 2, "eval_ms": 3}
 
 
+class FakeNvidiaTeacherClient:
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        self.calls = []
+        self.base_url = main.DEFAULT_NVIDIA_BASE_URL
+        self.last_usage = {}
+
+    def chat(self, *, model, system, user, temperature=0.2, max_tokens=512):
+        self.calls.append(
+            {
+                "model": model,
+                "system": system,
+                "user": user,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        output = self.outputs.pop(0)
+        if isinstance(output, Exception):
+            raise output
+        self.last_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        return output
+
+
 class PipelineTests(unittest.TestCase):
     def test_passes_clean_candidate(self):
         client = main.FakeClient(
@@ -2004,6 +2028,45 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(args.no_system)
         self.assertTrue(args.json)
 
+    def test_parser_accepts_main_nvidia_teacher_export_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "main-nvidia-teacher-export",
+                "--model",
+                "deepseek-ai/deepseek-v3.2",
+                "--model",
+                "minimaxai/minimax-m2.7",
+                "--samples-per-model",
+                "2",
+                "--min-reward",
+                "1",
+                "--max-length-ratio",
+                "4",
+                "--temperature",
+                "0.1",
+                "--max-tokens",
+                "64",
+                "--limit-records",
+                "3",
+                "--stop-on-error",
+                "--no-system",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "main-nvidia-teacher-export")
+        self.assertEqual(args.model, ["deepseek-ai/deepseek-v3.2", "minimaxai/minimax-m2.7"])
+        self.assertEqual(args.samples_per_model, 2)
+        self.assertEqual(args.min_reward, 1)
+        self.assertEqual(args.max_length_ratio, 4)
+        self.assertEqual(args.temperature, 0.1)
+        self.assertEqual(args.max_tokens, 64)
+        self.assertEqual(args.limit_records, 3)
+        self.assertTrue(args.stop_on_error)
+        self.assertTrue(args.no_system)
+        self.assertTrue(args.json)
+
     def test_parser_accepts_main_limo_curate_command(self):
         parser = main.build_parser()
         args = parser.parse_args(
@@ -2919,6 +2982,115 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("#### 18", encoded_summary)
         self.assertNotIn("Useful direct answer", encoded_summary)
         self.assertNotIn("I can't help", encoded_summary)
+
+    def test_nvidia_teacher_default_models_use_current_minimax_endpoint(self):
+        self.assertIn("minimaxai/minimax-m2.7", main.DEFAULT_NVIDIA_TEACHER_MODELS)
+        self.assertNotIn("minimaxai/minimax-m2.5", main.DEFAULT_NVIDIA_TEACHER_MODELS)
+        self.assertEqual(
+            main.normalize_nvidia_base_url("https://integrate.api.nvidia.com/v1/chat/completions"),
+            "https://integrate.api.nvidia.com/v1",
+        )
+
+    def test_nvidia_teacher_export_accepts_only_local_verifier_passing_rows(self):
+        records = [
+            main.MainAgentRecord(
+                record_id="math-1",
+                category="hard_math",
+                prompt="Compute 9 + 9 and give #### final answer.",
+                target_response="18",
+                verifier={"numeric_answer": 18},
+            ),
+            main.MainAgentRecord(
+                record_id="summary-1",
+                category="summary",
+                prompt="Give a concise project summary.",
+                target_response="Useful direct answer.",
+            ),
+        ]
+        client = FakeNvidiaTeacherClient(
+            [
+                "#### 17",
+                "#### 18",
+                "I can't help with that.",
+                "Useful direct answer.",
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_file = Path(tmp) / "nvidia.jsonl"
+            data = main.run_nvidia_teacher_export(
+                client=client,
+                records=records,
+                output_file=output_file,
+                teacher_models=["deepseek-ai/deepseek-v3.2", "minimaxai/minimax-m2.7"],
+                samples_per_model=1,
+                min_reward=0.0,
+                max_length_ratio=4,
+                temperature=0.1,
+                max_tokens=64,
+                main_agent_system_prompt=main.MAIN_AGENT_SYSTEM_PROMPT,
+                candidate_issues=main.main_candidate_issues,
+                verifier_issues=main.main_verifier_issues,
+            )
+            exported_lines = output_file.read_text(encoding="utf-8").strip().splitlines()
+
+        encoded_summary = json.dumps(data, ensure_ascii=False)
+        exported = [json.loads(line) for line in exported_lines]
+
+        self.assertEqual(data["total_samples"], 4)
+        self.assertEqual(data["accepted_samples"], 2)
+        self.assertEqual(data["min_reward"], 0.0)
+        self.assertEqual(data["accepted_model_counts"], {"minimaxai/minimax-m2.7": 2})
+        self.assertEqual(data["issue_counts"]["numeric_answer_mismatch"], 1)
+        self.assertEqual(data["issue_counts"]["refusal_like"], 1)
+        self.assertEqual(data["total_tokens"], 60)
+        self.assertEqual(client.calls[1]["model"], "minimaxai/minimax-m2.7")
+        self.assertEqual(client.calls[1]["temperature"], 0.1)
+        self.assertEqual(client.calls[1]["max_tokens"], 64)
+        self.assertEqual(exported[0]["source"], "nvidia_teacher_synthetic")
+        self.assertEqual(exported[0]["split"], "train_candidate")
+        self.assertEqual(exported[0]["teacher_provider"], "nvidia")
+        self.assertEqual(exported[0]["teacher_model"], "minimaxai/minimax-m2.7")
+        self.assertIn("accepted_by_local_verifier", exported[0]["verifier_labels"])
+        self.assertIn("external_teacher:nvidia", exported[0]["verifier_labels"])
+        self.assertIn("teacher_model:minimaxai/minimax-m2.7", exported[0]["verifier_labels"])
+        self.assertEqual(exported[0]["messages"][2]["content"], "#### 18")
+        self.assertEqual(exported[1]["messages"][2]["content"], "Useful direct answer.")
+        self.assertNotIn("#### 18", encoded_summary)
+        self.assertNotIn("Useful direct answer", encoded_summary)
+        self.assertNotIn("I can't help", encoded_summary)
+
+    def test_nvidia_teacher_export_can_continue_after_teacher_request_failure(self):
+        records = [
+            main.MainAgentRecord(
+                record_id="math-1",
+                category="hard_math",
+                prompt="Compute 9 + 9 and give #### final answer.",
+                target_response="18",
+                verifier={"numeric_answer": 18},
+            )
+        ]
+        client = FakeNvidiaTeacherClient([main.SetupError("model unavailable"), "#### 18"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_file = Path(tmp) / "nvidia.jsonl"
+            data = main.run_nvidia_teacher_export(
+                client=client,
+                records=records,
+                output_file=output_file,
+                teacher_models=["expired/model", "minimaxai/minimax-m2.7"],
+                samples_per_model=1,
+                main_agent_system_prompt=main.MAIN_AGENT_SYSTEM_PROMPT,
+                candidate_issues=main.main_candidate_issues,
+                verifier_issues=main.main_verifier_issues,
+            )
+            exported_lines = output_file.read_text(encoding="utf-8").strip().splitlines()
+
+        self.assertEqual(data["total_samples"], 2)
+        self.assertEqual(data["accepted_samples"], 1)
+        self.assertEqual(data["issue_counts"]["teacher_request_failed"], 1)
+        self.assertEqual(data["cases"][0]["error"], "SetupError")
+        self.assertEqual(json.loads(exported_lines[0])["teacher_model"], "minimaxai/minimax-m2.7")
 
     def test_main_limo_curate_selects_high_quality_templates_without_summary_text(self):
         low_quality = {

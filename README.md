@@ -420,6 +420,22 @@ Because this file has now driven fixes, treat it as a tuned regression surface;
 the next broader capability claim needs another fresh held-out set or a public
 benchmark run.
 
+External NVIDIA teacher distillation is available for opt-in, verifier-filtered
+data generation while free or expiring teacher endpoints are useful. Keep the
+key in the local shell only, then run a small batch first:
+
+```powershell
+$env:NVIDIA_API_KEY = "<set locally>"
+python main.py main-nvidia-teacher-export --input-file data\main_agent_hard_seed.jsonl --limit-records 3 --samples-per-model 1 --json --timeout 1200
+python main.py main-training-data-report --input-file runs\main-agent-nvidia-teacher.jsonl --require-system --require-generated-metadata --json
+```
+
+The default NVIDIA teacher order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3
+Super 120B-A12B, GPT-OSS 120B, then Qwen3-Next 80B-A3B. The export writes only
+local-verifier-passing SFT rows under git-ignored `runs/` and does not print
+prompts, targets, or generated answers in its summary. See
+[NVIDIA Teacher Distillation](docs/nvidia-teacher-distillation.md).
+
 For public benchmark comparisons instead of repo-owned claims, see
 [Public Benchmark Template](docs/public-benchmark-template.md). It defines a
 same-runner raw `qwen3:8b` versus `qwen3-8b-s2t-lite` comparison path through
