@@ -73,6 +73,8 @@ def verifier_metadata_labels(verifier: dict[str, Any]) -> list[str]:
 
 def infer_main_sft_source_split(input_file: Path) -> tuple[str, str]:
     name = input_file.name.lower()
+    if "fresh_heldout" in name:
+        return "synthetic_fresh_heldout", "heldout_eval"
     if "rotated_heldout" in name:
         return "synthetic_rotated_heldout", "heldout_eval"
     if "heldout" in name:

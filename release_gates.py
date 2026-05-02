@@ -315,6 +315,11 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
         min_total=8,
         min_category=2,
     )
+    fresh_heldout_check = apply_main_agent_requirements(
+        check_main_agent_corpus(config.project_root / "data" / "main_agent_fresh_heldout_seed.jsonl"),
+        min_total=12,
+        min_category=2,
+    )
     data_quality = config.main_data_quality_check_data(list(config.main_data_quality_files))
     sft_format = config.sft_export_format_gate_data(list(config.main_data_quality_files))
     distill = apply_distill_balance_requirements(
@@ -333,6 +338,7 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
     errors.extend(prefixed_errors("main_hard", hard_check.errors))
     errors.extend(prefixed_errors("main_heldout", heldout_check.errors))
     errors.extend(prefixed_errors("main_rotated_heldout", rotated_heldout_check.errors))
+    errors.extend(prefixed_errors("main_fresh_heldout", fresh_heldout_check.errors))
     errors.extend(prefixed_errors("data_quality", data_quality["errors"]))
     errors.extend(prefixed_errors("sft_format", sft_format["errors"]))
     errors.extend(prefixed_errors("distill", distill.errors))
@@ -351,6 +357,7 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
             "hard": hard_check.public_dict(),
             "heldout": heldout_check.public_dict(),
             "rotated_heldout": rotated_heldout_check.public_dict(),
+            "fresh_heldout": fresh_heldout_check.public_dict(),
         },
         "data_quality": {
             "total_records": data_quality["total_records"],
@@ -383,12 +390,13 @@ def render_local_release_gate(data: dict[str, Any]) -> str:
             action=data["architecture_adversarial"]["layers"].get("action", 0),
         ),
         (
-            "Main corpora: seed={seed}, hard={hard}, heldout={heldout}, rotated={rotated}"
+            "Main corpora: seed={seed}, hard={hard}, heldout={heldout}, rotated={rotated}, fresh={fresh}"
         ).format(
             seed=data["main_corpora"]["seed"]["total"],
             hard=data["main_corpora"]["hard"]["total"],
             heldout=data["main_corpora"]["heldout"]["total"],
             rotated=data["main_corpora"]["rotated_heldout"]["total"],
+            fresh=data["main_corpora"]["fresh_heldout"]["total"],
         ),
         (
             "Data quality: records={total_records}, verifier={total_verifier_records} "

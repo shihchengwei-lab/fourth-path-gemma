@@ -364,7 +364,7 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
     main_quality_report.add_argument(
         "--input-file",
         action="append",
-        help="JSONL corpus path. Can be repeated. Defaults to seed, hard seed, held-out seed, and rotated held-out seed.",
+        help="JSONL corpus path. Can be repeated. Defaults to seed, hard seed, held-out seed, rotated held-out seed, and fresh held-out seed.",
     )
     main_quality_report.add_argument(
         "--require-verifier-pattern",
@@ -824,8 +824,8 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
     main_eval_ablation.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     main_eval_ablation.add_argument(
         "--input-file",
-        default=str(config.project_root / "data" / "main_agent_rotated_heldout_seed.jsonl"),
-        help="JSONL corpus path. Default: data/main_agent_rotated_heldout_seed.jsonl.",
+        default=str(config.project_root / "data" / "main_agent_fresh_heldout_seed.jsonl"),
+        help="JSONL corpus path. Default: data/main_agent_fresh_heldout_seed.jsonl.",
     )
     main_eval_ablation.add_argument(
         "--runs-dir",

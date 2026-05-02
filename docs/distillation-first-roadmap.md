@@ -72,11 +72,12 @@ python main.py main-data-quality-report --json
 python main.py main-data-quality-check --json
 ```
 
-This checks the current seed, hard, held-out, and rotated held-out corpora
-together for duplicate ids, duplicate prompt hashes, dominant-category
-imbalance, verifier coverage, and verifier type diversity on hard/held-out files
-without printing prompt or target text. The rotated held-out file adds fresh
-math, Python repair, strict-format, and planning cases before any LoRA claim.
+This checks the current seed, hard, held-out, rotated held-out, and fresh
+held-out corpora together for duplicate ids, duplicate prompt hashes,
+dominant-category imbalance, verifier coverage, and verifier type diversity on
+hard/held-out files without printing prompt or target text. The fresh held-out
+file adds a clean gate across math, Python repair, strict-format, planning, and
+defensive near-boundary cases before any LoRA claim.
 
 ## 2. Distillation Format
 
@@ -113,6 +114,7 @@ python main.py main-check --input-file data\main_agent_seed.jsonl --min-total 40
 python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 30 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_heldout_seed.jsonl --min-total 12 --min-category 2 --json
 python main.py main-check --input-file data\main_agent_rotated_heldout_seed.jsonl --min-total 8 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_fresh_heldout_seed.jsonl --min-total 12 --min-category 2 --json
 python main.py distill-check --min-pass 19 --min-fail 25 --min-clause 8 --json
 python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --json
 python main.py main-training-data-report --input-file runs\main-agent-mix-distill.jsonl --require-system --require-generated-metadata --json

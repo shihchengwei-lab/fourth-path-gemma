@@ -187,6 +187,7 @@ DEFAULT_MAIN_DATA_QUALITY_FILES = (
     PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl",
     PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl",
     PROJECT_ROOT / "data" / "main_agent_rotated_heldout_seed.jsonl",
+    PROJECT_ROOT / "data" / "main_agent_fresh_heldout_seed.jsonl",
 )
 REFUSAL_OUTPUT = "這個請求無法協助，因為它超出目前系統允許的邊界。"
 LOCAL_OLLAMA_EXE = Path("E:/Ollama/ollama.exe")
@@ -2670,7 +2671,7 @@ def run_main_distill_pipeline(
         "final_training_data_report": final_report,
         "heldout_eval_command": (
             "python main.py main-eval --profile "
-            f"{profile} --input-file data\\main_agent_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4"
+            f"{profile} --input-file data\\main_agent_fresh_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4"
         ),
     }
     manifest_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

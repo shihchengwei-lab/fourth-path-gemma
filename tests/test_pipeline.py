@@ -913,6 +913,41 @@ class PipelineTests(unittest.TestCase):
             "Plan.",
             "Give a concise contamination-safe plan for using rotated held-out failures to improve training data without copying held-out prompts.",
         )
+        fresh_math = main.augment_main_user_prompt(
+            "Compute.",
+            "A fresh eval kept 18 accepted samples out of 24 generated attempts. What acceptance rate is that? Answer in one short sentence.",
+        )
+        fresh_code = main.augment_main_user_prompt(
+            "Fix.",
+            "Fix this Python function and return only the corrected function:\n\n"
+            "def cents_to_dollars(cents):\n"
+            "    return cents / 10",
+        )
+        fresh_schema = main.augment_main_user_prompt(
+            "Answer.",
+            "Answer exactly in this one-line schema: RESULT=<pass|fail>; REASON=<short>; NEXT=<short>. "
+            "Topic: an improvement claim has no fresh eval gate.",
+        )
+        fresh_json = main.augment_main_user_prompt(
+            "Answer.",
+            'Return JSON only with keys "evidence", "gap", and "next_step" for an ablation that improves tuned rows but has no public run. No markdown.',
+        )
+        fresh_plan = main.augment_main_user_prompt(
+            "Plan.",
+            "Give a concise two-step plan for turning verifier failures into new training data without copying eval prompts.",
+        )
+        fresh_lora = main.augment_main_user_prompt(
+            "Plan.",
+            "Choose whether to run LoRA now or first improve data. Answer in two bullets.",
+        )
+        webhook = main.augment_main_user_prompt(
+            "Explain.",
+            "Summarize how to respond to a leaked webhook signing secret in one sentence. Defensive only.",
+        )
+        login_alert = main.augment_main_user_prompt(
+            "Explain.",
+            "Give two defensive signs that a login alert email might be fake. Do not ask for credentials.",
+        )
 
         self.assertIn("parameterized", sql)
         self.assertIn("bound parameter placeholder", sql)
@@ -977,6 +1012,22 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("before accepting rows", code_repair_data)
         self.assertIn("failure labels only", contamination_safe)
         self.assertIn("reserve held-out prompts for evaluation", contamination_safe)
+        self.assertIn("accepted or clean cases divided by total cases", fresh_math)
+        self.assertIn("divide cents by 100", fresh_code)
+        self.assertIn("RESULT=...; REASON=...; NEXT=...", fresh_schema)
+        self.assertIn("add rotated held-out rows", fresh_schema)
+        self.assertIn("evidence, gap, and next_step", fresh_json)
+        self.assertIn("test fresh held-out rows", fresh_json)
+        self.assertIn("verifier issue labels and failure surfaces", fresh_plan)
+        self.assertIn("fresh held-out and public checks", fresh_lora)
+        self.assertIn("review or audit recent activity", webhook)
+        self.assertIn("sender/domain, link destination, urgency", login_alert)
+        self.assertEqual(
+            main.local_selection_unit_limit(
+                "Give two defensive signs that a login alert email might be fake. Do not ask for credentials."
+            ),
+            2,
+        )
 
     def test_main_prompt_math_hints_are_conditional(self):
         plain = main.augment_main_user_prompt("Compute.", "Question: Janet has 16 eggs.\nAnswer:\n#### 18")
@@ -2191,7 +2242,7 @@ class PipelineTests(unittest.TestCase):
         data = main.inference_compute_gate_data(main.PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl")
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["data_quality"]["total_records"], 90)
+        self.assertEqual(data["data_quality"]["total_records"], 102)
         self.assertEqual(data["verifier_tool"]["distill_total"], 44)
         self.assertEqual(
             data["adaptive_compute_plans"]["strict_output_shape"]["strategy"],
@@ -2215,9 +2266,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["main_corpora"]["hard"]["total"], 30)
         self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
         self.assertEqual(data["main_corpora"]["rotated_heldout"]["total"], 8)
+        self.assertEqual(data["main_corpora"]["fresh_heldout"]["total"], 12)
         self.assertEqual(data["data_quality"]["verifier_type_count"], 8)
-        self.assertEqual(data["sft_format"]["rows"], 90)
-        self.assertEqual(len(data["sft_format"]["source_paths"]), 4)
+        self.assertEqual(data["sft_format"]["rows"], 102)
+        self.assertEqual(len(data["sft_format"]["source_paths"]), 5)
         self.assertEqual(data["sft_format"]["errors"], [])
         self.assertEqual(data["distill"]["total"], 44)
         self.assertNotIn("System secret marker", encoded)
@@ -2365,10 +2417,10 @@ class PipelineTests(unittest.TestCase):
         data = main.main_data_quality_check_data(list(main.DEFAULT_MAIN_DATA_QUALITY_FILES))
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["total_records"], 90)
-        self.assertEqual(data["total_verifier_records"], 50)
+        self.assertEqual(data["total_records"], 102)
+        self.assertEqual(data["total_verifier_records"], 62)
         self.assertEqual(data["verifier_type_count"], 8)
-        self.assertEqual(data["verifier_type_totals"]["python_tests"], 6)
+        self.assertEqual(data["verifier_type_totals"]["python_tests"], 9)
         self.assertEqual(data["duplicate_ids"], [])
         self.assertEqual(data["duplicate_prompt_hashes"], [])
         by_name = {Path(file_data["path"]).name: file_data for file_data in data["files"]}
@@ -2376,6 +2428,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(by_name["main_agent_hard_seed.jsonl"]["verifier_type_count"], 8)
         self.assertEqual(by_name["main_agent_heldout_seed.jsonl"]["verifier_type_count"], 7)
         self.assertEqual(by_name["main_agent_rotated_heldout_seed.jsonl"]["verifier_type_count"], 8)
+        self.assertEqual(by_name["main_agent_fresh_heldout_seed.jsonl"]["verifier_type_count"], 8)
 
     def test_main_data_quality_check_flags_overlap_and_missing_verifier(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2464,6 +2517,32 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(rotated.verifier_records, 8)
         self.assertEqual(rotated.categories["rotated_heldout_code_repair"], 2)
         self.assertFalse(any(record.prompt in known_prompts for record in rotated_records))
+
+    def test_main_agent_fresh_heldout_seed_corpus_is_valid_and_separate(self):
+        path = main.PROJECT_ROOT / "data" / "main_agent_fresh_heldout_seed.jsonl"
+        fresh = main.check_main_agent_corpus(path)
+        seed_records, _, _ = main.load_main_agent_records(main.PROJECT_ROOT / "data" / "main_agent_seed.jsonl")
+        hard_records, _, _ = main.load_main_agent_records(main.PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl")
+        heldout_records, _, _ = main.load_main_agent_records(main.PROJECT_ROOT / "data" / "main_agent_heldout_seed.jsonl")
+        rotated_records, _, _ = main.load_main_agent_records(
+            main.PROJECT_ROOT / "data" / "main_agent_rotated_heldout_seed.jsonl"
+        )
+        known_prompts = {
+            record.prompt for record in [*seed_records, *hard_records, *heldout_records, *rotated_records]
+        }
+        fresh_records, _, _ = main.load_main_agent_records(path)
+        verifier_failures = {
+            record.record_id: main.main_verifier_issues(record.target_response, record.verifier)
+            for record in fresh_records
+            if main.main_verifier_issues(record.target_response, record.verifier)
+        }
+
+        self.assertEqual(fresh.errors, [])
+        self.assertEqual(fresh.total, 12)
+        self.assertEqual(fresh.verifier_records, 12)
+        self.assertEqual(fresh.categories["fresh_heldout_code_repair"], 3)
+        self.assertEqual(verifier_failures, {})
+        self.assertFalse(any(record.prompt in known_prompts for record in fresh_records))
 
     def test_main_agent_record_rejects_candidate_output_fields(self):
         errors = main.validate_main_agent_record(
@@ -2635,6 +2714,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(
             main.infer_main_sft_source_split(Path("data/main_agent_rotated_heldout_seed.jsonl")),
             ("synthetic_rotated_heldout", "heldout_eval"),
+        )
+        self.assertEqual(
+            main.infer_main_sft_source_split(Path("data/main_agent_fresh_heldout_seed.jsonl")),
+            ("synthetic_fresh_heldout", "heldout_eval"),
         )
 
     def test_sft_format_gate_catches_duplicate_ids_across_sources(self):
@@ -3072,6 +3155,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["r1"]["accepted_samples"], 3)
         self.assertEqual(data["final_training_data_report"]["rows"], 3)
         self.assertIn("main-eval --profile test-profile", data["heldout_eval_command"])
+        self.assertIn("data\\main_agent_fresh_heldout_seed.jsonl", data["heldout_eval_command"])
         self.assertNotIn("Check the sum", encoded)
         self.assertNotIn("Useful direct answer", encoded)
         self.assertNotIn("Check the sum", manifest_text)

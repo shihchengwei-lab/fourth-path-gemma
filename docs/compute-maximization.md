@@ -522,16 +522,38 @@ For the held-out gate, use records that were not used to tune prompt hints or
 build the training pipeline:
 
 ```powershell
-python main.py main-check --input-file data\main_agent_heldout_seed.jsonl --min-total 12 --min-category 2 --json
-python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4
+python main.py main-check --input-file data\main_agent_fresh_heldout_seed.jsonl --min-total 12 --min-category 2 --json
+python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_fresh_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4
 ```
 
-This corpus is the next gate for rStar-style step search, SLM-MUX-style offline
-model selection, and Main Agent LoRA. It includes exact numeric checks,
+This fresh corpus is the next gate for rStar-style step search, SLM-MUX-style
+offline model selection, and Main Agent LoRA. It includes exact numeric checks,
 code-repair constraints, format checks, planning requirements, and safe
 near-boundary helpfulness checks. The verifier layer emits only issue labels
 such as `numeric_answer_mismatch` or `missing_required_term`; it does not add
 prompt, target, or output text to eval summaries.
+
+Fresh held-out measurement on 2026-05-02:
+
+- Baseline path:
+  `runs\main-eval-qwen3-8b-s2t-lite-fresh-heldout-20260502.json`
+- Baseline result: 2/12 clean, 0 refusal-like, 0 overlong, 12 Main Agent calls.
+- Final tuned-regression path:
+  `runs\main-eval-qwen3-8b-s2t-lite-fresh-heldout-final-20260502.json`
+- Final tuned-regression result: 12/12 clean, 0 refusal-like, 0 overlong,
+  12 Main Agent calls, 1.0 clean cases per Main Agent call.
+- Latest repeat ablation path:
+  `runs\main-eval-ablation-fresh-heldout-final-v3-20260502.json`
+- Latest repeat ablation result: `qwen3-8b-local-max` 11/12 clean with
+  12 Main Agent calls, `qwen3-8b-s2t-lite` 11/12 clean with 12 calls, and
+  `qwen3-8b-compute-optimal-lite` 11/12 clean with 16 calls. The adaptive
+  profile therefore spent more calls without buying more clean cases.
+- Mechanism: generic prompt-side hints for rate math, code repair, strict
+  schemas, verifier-failure data conversion, LoRA gating, and defensive
+  near-boundary answers; plus verifier repairs for fair equivalent answers and
+  local selection for two-item outputs.
+- Caveat: the fresh file is now a tuned regression surface. Use another fresh
+  held-out or public benchmark surface for the next broader claim.
 
 Held-out result after the 2026-05-02 prompt-shape pass:
 
@@ -546,7 +568,9 @@ Held-out result after the 2026-05-02 prompt-shape pass:
   handling; plus explicit local selector character budgets for concise planning
   and defensive prompts. This did not move safety review into Main Agent.
 - Caveat: this held-out set has now been touched by the improvement loop. The
-  next credible gate should rotate in fresh held-out or public benchmark cases.
+  next credible gate should be another fresh held-out or public benchmark case
+  set, because `data\main_agent_fresh_heldout_seed.jsonl` has now also driven
+  fixes.
 
 First `qwen3-8b-s2t-lite` hard-corpus measurement:
 

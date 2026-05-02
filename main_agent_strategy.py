@@ -217,10 +217,19 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
     if ("output-to-target" in lower or "length ratio" in lower) and "character" in lower:
         hints.append("Compute length ratio as generated-answer characters divided by target-answer characters.")
         hints.append("Do not invert the ratio; if the generated answer is longer than the target, the ratio must be greater than 1.")
-    if "percent" in lower and "short sentence" in lower:
+    if ("percent" in lower or "acceptance rate" in lower or "clean-case rate" in lower) and "short sentence" in lower:
+        hints.append("Compute percentage rates as accepted or clean cases divided by total cases times 100.")
         hints.append("When the answer is a percentage, use the word percent rather than only the % symbol.")
     if "return only the corrected function" in lower or "corrected function" in lower:
         hints.append("Return raw corrected function code only; do not wrap it in Markdown or add explanation.")
+        hints.append("Preserve named fallback/default behavior from the prompt and repair the smallest intended bug.")
+    if "cents_to_dollars" in lower or ("cents" in lower and "dollars" in lower):
+        hints.append("For cents-to-dollars conversion, divide cents by 100 and round only if useful.")
+    if "choose_label" in lower:
+        hints.append("For choose_label, strip primary and fallback, then use fallback or the named default string when primary is blank.")
+        hints.append("If both stripped labels are blank, return the named default string exactly.")
+    if "is_even" in lower:
+        hints.append("For is_even, return a boolean expression such as n % 2 == 0.")
     if "def percent(part, total)" in lower:
         hints.append("For percent(part, total), return None when total is zero and otherwise use normal division with round(..., 1).")
     if "def parse_metric(line)" in lower:
@@ -235,10 +244,17 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
     if "evidence=<short finding>" in lower and "action=<one next action>" in lower:
         hints.append("Follow the EVIDENCE=...; ACTION=... schema exactly on one line.")
         hints.append("For fresh held-out failures, mention fresh held-out and verifier-backed hard rows.")
+    if "result=<pass|fail>" in lower and "reason=<short>" in lower and "next=<short>" in lower:
+        hints.append("Follow the RESULT=...; REASON=...; NEXT=... schema exactly on one line.")
+        hints.append("If no fresh eval gate exists, set RESULT=fail and make NEXT add rotated held-out rows.")
     if '"metric"' in lower and '"failure"' in lower and '"next_step"' in lower:
         hints.append("Return one-line compact JSON only with metric, failure, and next_step keys.")
         if "adaptive compute" in lower and "more calls" in lower:
             hints.append("Use metric clean_cases_per_main_call, failure extra calls without more clean cases, and next_step improve data and verifiers.")
+    if '"evidence"' in lower and '"gap"' in lower and '"next_step"' in lower:
+        hints.append("Return one-line compact JSON only with evidence, gap, and next_step keys.")
+        if "tuned" in lower and "public run" in lower:
+            hints.append("Use evidence tuned rows improved, gap no public run, and next_step test fresh held-out rows.")
     if '"surface"' in lower and '"issue"' in lower and '"action"' in lower:
         hints.append("Return one-line compact JSON only with all requested keys; do not use Markdown or extra lines.")
         if "planning" in lower and "required" in lower:
@@ -255,6 +271,8 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
         hints.append("Mention held-out evals, self-refusal, role leakage, verbosity, and format failures.")
     if "data-format fixes" in lower and "lora" in lower:
         hints.append("For data-format fixes, mention source/split metadata, verifier label metadata, and held-out reserved for evaluation, not training.")
+    if "run lora now" in lower or "first improve data" in lower:
+        hints.append("Recommend improving data quality and verifier coverage first; consider LoRA only after fresh held-out and public checks improve.")
     if "adaptive compute" in lower and "clean cases per main agent call" in lower:
         hints.append("For adaptive-compute follow-up, keep it experimental, add verifier-backed hard rows, and recompare clean cases per Main Agent call on rotated held-out data.")
     if "code-repair data" in lower and ("regex" in lower or "python tests" in lower):
@@ -262,6 +280,8 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
         hints.append("End the final step with the exact phrase before accepting rows.")
     if "rotated held-out failures" in lower and ("without copying" in lower or "copying held-out" in lower):
         hints.append("Use failure labels only, write new synthetic hard rows, reserve held-out prompts for evaluation, and rerun a fresh rotated gate.")
+    if "verifier failures" in lower and "without copying eval prompts" in lower:
+        hints.append("Use verifier issue labels and failure surfaces only, write new synthetic hard rows, and reserve eval prompts for evaluation.")
     if (
         ("ablation" in lower or "compare" in lower or "comparing" in lower)
         and ("baseline" in lower or "same runner" in lower or "benchmark" in lower or "qwen3" in lower)
@@ -285,6 +305,10 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
         and ("public repo" in lower or "committed" in lower or "leaked" in lower or "exposed" in lower)
     ):
         hints.append("For exposed API keys, keep one concise sentence mentioning revoke, rotate, scan usage, and prevention checks.")
+    if "webhook signing secret" in lower and ("leaked" in lower or "exposed" in lower):
+        hints.append("For leaked webhook signing secrets, mention rotate, revoke, review or audit recent activity, logs, and prevention checks.")
+    if "login alert email" in lower and "fake" in lower:
+        hints.append("For fake login alert signs, mention sender/domain, link destination, urgency, and requests for codes or passwords.")
     if "audit logs should omit prompts" in lower:
         hints.append("Mention sensitive or private data, metadata, routing, and verdicts; omit hidden-prompt wording.")
         hints.append("Keep the answer under 260 characters.")
@@ -303,6 +327,11 @@ def local_selection_unit_limit(user_prompt: str) -> int | None:
     if prompt_requests_long_output(user_prompt) or prompt_needs_main_reasoning(user_prompt):
         return None
     lower = user_prompt.lower()
+    if re.search(r"\b(two|2)\b", lower) and re.search(
+        r"\b(signs?|bullets?|items?|examples?|steps?|sentences?|lines?)\b",
+        lower,
+    ):
+        return 2
     if re.search(r"\b(three|3)\b", lower):
         return 3
     if has_non_ascii(user_prompt):

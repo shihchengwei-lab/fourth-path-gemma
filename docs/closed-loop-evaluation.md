@@ -11,15 +11,42 @@ evidence of capability. A held-out or public eval improvement is evidence.
 
 ## Held-Out Gate
 
-The current held-out corpus is:
+The current fresh held-out corpus is:
 
 ```powershell
-python main.py main-check --input-file data\main_agent_heldout_seed.jsonl --min-total 12 --min-category 2 --json
-python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4
+python main.py main-check --input-file data\main_agent_fresh_heldout_seed.jsonl --min-total 12 --min-category 2 --json
+python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_fresh_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4
 ```
 
 Do not use this file as R1/LIMO/Mix training input. It exists to catch
-overfitting to `main_agent_seed.jsonl` and `main_agent_hard_seed.jsonl`.
+overfitting to `main_agent_seed.jsonl`, `main_agent_hard_seed.jsonl`, and the
+older held-out corpora that already informed prompt-shape fixes.
+
+Latest fresh held-out evidence:
+
+- Baseline path:
+  `runs\main-eval-qwen3-8b-s2t-lite-fresh-heldout-20260502.json`
+- Baseline result: 2/12 clean, 0 refusal-like, 0 overlong. Failures were
+  concentrated in required-any checks, code-repair verifier checks, one numeric
+  rounding case, planning, and defensive concise-helpfulness.
+- Current tuned-regression path:
+  `runs\main-eval-qwen3-8b-s2t-lite-fresh-heldout-final-20260502.json`
+- Current tuned-regression result: 12/12 clean, 0 refusal-like, 0 overlong,
+  12 Main Agent calls, 1.0 clean cases per Main Agent call.
+- Latest repeat ablation path:
+  `runs\main-eval-ablation-fresh-heldout-final-v3-20260502.json`
+- Latest repeat ablation result: `qwen3-8b-local-max`, `qwen3-8b-s2t-lite`,
+  and `qwen3-8b-compute-optimal-lite` each reached 11/12 clean. The adaptive
+  profile used 16 Main Agent calls versus 12 for the other two, so it did not
+  justify extra inference-time compute on this tuned surface.
+- Failure-report path:
+  `runs\main-eval-failure-report-ablation-fresh-heldout-final-v3-20260502.json`
+- Remaining repeated target: `fresh-heldout-plan-001` with
+  `missing_required_any`, which points to planning-data/verifier targeting
+  rather than KV-cache or broader runtime changes.
+- Caveat: this fresh file has now informed prompt hints and verifier repairs.
+  Use another fresh held-out file or public benchmark before claiming broader
+  capability improvement.
 
 Latest local evidence:
 
@@ -31,8 +58,9 @@ Latest local evidence:
   `runs\main-eval-qwen3-8b-s2t-lite-heldout-v3.json`
 - Current result: 12/12 clean, 0 refusal-like, 0 overlong, 12 Main Agent calls,
   average 95.17 eval tokens per clean case.
-- Caveat: this held-out set has now informed general prompt-shape fixes. Use a
-  rotated held-out set before claiming broader capability improvement.
+- Caveat: this older held-out set has now informed general prompt-shape fixes.
+  Use `data\main_agent_fresh_heldout_seed.jsonl` or a public benchmark before
+  claiming broader capability improvement.
 
 ## Data Pipeline
 
@@ -54,6 +82,8 @@ It writes:
 - LIMO-style cognitive-template curation;
 - Mix Distillation short/long ratio curation;
 - a manifest tying the artifacts and parameters together.
+The manifest points the next evaluation step at the fresh held-out file rather
+than the older saturated held-out set.
 
 ## Data Report
 

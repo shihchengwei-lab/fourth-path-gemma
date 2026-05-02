@@ -138,7 +138,10 @@ Next implementation:
 Do these before another architecture refactor round:
 
 1. Implement `main-data-quality-report`.
-2. Add fresh rotated held-out data.
+2. Add fresh rotated held-out data. (Initial 12-row fresh held-out gate now
+   exists as `data/main_agent_fresh_heldout_seed.jsonl`; after the 2026-05-02
+   hint/verifier pass it is a tuned regression surface, so the next broad claim
+   needs another fresh set.)
 3. Add generated-row schema enforcement for `source`, `split`, and verifier
    metadata.
 4. Add verifier coverage reporting.
@@ -146,12 +149,15 @@ Do these before another architecture refactor round:
    format cases.
 6. Add `clean_cases_per_main_call` to eval summaries.
 7. Run an ablation: base profile vs local selector vs adaptive compute on the
-   fresh held-out set.
+   fresh held-out set. (Done on 2026-05-02:
+   `runs\main-eval-ablation-fresh-heldout-final-v3-20260502.json`; all three
+   profiles reached 11/12, while adaptive compute used more calls.)
 
 Local implementation hooks now exist for this backlog:
 
 - `main-data-quality-report`
 - `data/main_agent_rotated_heldout_seed.jsonl`
+- `data/main_agent_fresh_heldout_seed.jsonl`
 - generated-row `source`, `split`, and `verifier_labels` metadata checks
 - verifier coverage totals, including restricted `python_tests`
 - `clean_cases_per_main_call`
@@ -174,6 +180,11 @@ The expanded hard corpus is now a tuned regression surface after prompt-side
 distillation hints lifted `qwen3-8b-s2t-lite` to 30/30 clean on
 `runs\main-eval-qwen3-8b-s2t-lite-hard-expanded-post-hints-v3-20260502.json`.
 Use a fresh rotated or public surface for broader capability claims.
+
+The current fresh held-out file is also now a tuned regression surface. Its
+repeat ablation leaves `fresh-heldout-plan-001` as the shared failure target,
+so the next high-value work is another fresh/public gate or synthetic planning
+rows derived from the failure label, not KV-cache integration.
 
 ## Do Not Do Yet
 
