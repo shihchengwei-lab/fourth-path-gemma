@@ -573,8 +573,11 @@ Current hard-corpus measurement after the 2026-05-01 S2T/rStar-inspired pass:
 
 That older hard-corpus snapshot was saturated too. The current hard corpus has
 since been expanded with targeted code-repair, strict-format, and planning rows
-derived from issue-label summaries. Run a fresh hard eval before treating the
-expanded corpus as saturated.
+derived from issue-label summaries. A fresh post-hints eval on the expanded
+30-row hard corpus reached 30/30 clean with 30 Main Agent calls:
+`runs\main-eval-qwen3-8b-s2t-lite-hard-expanded-post-hints-v3-20260502.json`.
+This is useful as a tuned hard-regression surface, not as clean held-out
+evidence.
 
 The later full idle run `runs\idle-long-run-20260502-072659.log` added S2T
 seed/hard/held-out evals to the long runner and completed 29/29 steps. That run

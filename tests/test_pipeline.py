@@ -860,6 +860,59 @@ class PipelineTests(unittest.TestCase):
             "Explain.",
             "Summarize how to handle an API key accidentally committed to a public repo at a high level.",
         )
+        code_repair = main.augment_main_user_prompt(
+            "Fix.",
+            "Fix this Python function and return only the corrected function:\n\n"
+            "def parse_metric(line):\n"
+            "    name, value = line.split(':')\n"
+            "    return {name: int(value)}",
+        )
+        clamp = main.augment_main_user_prompt(
+            "Fix.",
+            "Fix this Python function and return only the corrected function:\n\n"
+            "def clamp_score(score):\n"
+            "    if score < 0:\n"
+            "        return 1\n"
+            "    if score > 1:\n"
+            "        return 0\n"
+            "    return score",
+        )
+        target_schema = main.augment_main_user_prompt(
+            "Answer.",
+            "Answer exactly in this one-line schema: TARGET=<failed surface>; CHECK=<verifier type>; NEXT=<data action>. "
+            "Topic: code repair failed regex and unit tests.",
+        )
+        evidence_schema = main.augment_main_user_prompt(
+            "Answer.",
+            "Answer on exactly one line using this schema: EVIDENCE=<short finding>; ACTION=<one next action>. "
+            "Topic: a fresh held-out eval failed most non-math cases.",
+        )
+        metric_json = main.augment_main_user_prompt(
+            "Answer.",
+            'Return JSON only with keys "metric", "failure", and "next_step" for adaptive compute spending more calls without improving clean cases. No markdown.',
+        )
+        planning_json = main.augment_main_user_prompt(
+            "Answer.",
+            'Return JSON only with keys "surface", "issue", and "action". '
+            "Topic: planning answers missed required terms across all profiles.",
+        )
+        adaptive_plan = main.augment_main_user_prompt(
+            "Plan.",
+            "Give a concise three-step plan after adaptive compute loses on a fresh held-out ablation. "
+            "Mention clean cases per Main Agent call.",
+        )
+        data_format = main.augment_main_user_prompt(
+            "Plan.",
+            "Prioritize three data-format fixes before LoRA training. Be concise and do not use held-out rows as training rows.",
+        )
+        code_repair_data = main.augment_main_user_prompt(
+            "Plan.",
+            "Give three concise steps to improve code-repair data after eval reports show missing regex patterns and failing Python tests.",
+        )
+        contamination_safe = main.augment_main_user_prompt(
+            "Plan.",
+            "Give a concise contamination-safe plan for using rotated held-out failures to improve training data without copying held-out prompts.",
+        )
 
         self.assertIn("parameterized", sql)
         self.assertIn("bound parameter placeholder", sql)
@@ -874,6 +927,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("answer N+1", gsm8k)
         self.assertIn("LLM judge", tradeoff)
         self.assertIn("under 240 characters", tradeoff)
+        self.assertIn("under eight words", three_bullets)
         self.assertIn("under 220 characters", three_bullets)
         self.assertIn("union coverage", mux)
         self.assertIn("contradiction", mux)
@@ -901,6 +955,28 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("revoke", exposed_key)
         self.assertIn("rotate", exposed_key)
         self.assertIn("scan usage", exposed_key)
+        self.assertIn("raw corrected function code only", code_repair)
+        self.assertIn("split on the first colon", code_repair)
+        self.assertIn("convert the value with int", code_repair)
+        self.assertIn("negative scores return 0", clamp)
+        self.assertIn("scores above 1 return 1", clamp)
+        self.assertIn("TARGET=...; CHECK=...; NEXT=...", target_schema)
+        self.assertIn("regex and python tests", target_schema)
+        self.assertIn("EVIDENCE=...; ACTION=...", evidence_schema)
+        self.assertIn("fresh held-out and verifier-backed hard rows", evidence_schema)
+        self.assertIn("metric clean_cases_per_main_call", metric_json)
+        self.assertIn("extra calls without more clean cases", metric_json)
+        self.assertIn("one-line compact JSON only", planning_json)
+        self.assertIn("required-any verifier rows", planning_json)
+        self.assertIn("keep it experimental", adaptive_plan)
+        self.assertIn("clean cases per Main Agent call", adaptive_plan)
+        self.assertIn("source/split metadata", data_format)
+        self.assertIn("held-out reserved for evaluation", data_format)
+        self.assertIn("one intended bug", code_repair_data)
+        self.assertIn("tiny Python tests", code_repair_data)
+        self.assertIn("before accepting rows", code_repair_data)
+        self.assertIn("failure labels only", contamination_safe)
+        self.assertIn("reserve held-out prompts for evaluation", contamination_safe)
 
     def test_main_prompt_math_hints_are_conditional(self):
         plain = main.augment_main_user_prompt("Compute.", "Question: Janet has 16 eggs.\nAnswer:\n#### 18")

@@ -392,8 +392,10 @@ reached 16/16 clean with 0 refusal-like and 0 overlong cases.
 
 The current hard corpus is larger than those runs: 30 verifier-backed rows,
 including targeted code-repair, strict-format, and planning cases derived from
-issue-label summaries rather than copied held-out prompts. Run a fresh hard eval
-before claiming this expanded corpus is saturated.
+issue-label summaries rather than copied held-out prompts. A fresh post-hints
+eval reached 30/30 clean:
+`runs\main-eval-qwen3-8b-s2t-lite-hard-expanded-post-hints-v3-20260502.json`.
+Treat that as a tuned hard-regression result, not as clean held-out evidence.
 
 For public benchmark comparisons instead of repo-owned claims, see
 [Public Benchmark Template](docs/public-benchmark-template.md). It defines a

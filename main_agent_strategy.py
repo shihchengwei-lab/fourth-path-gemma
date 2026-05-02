@@ -219,10 +219,32 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
         hints.append("Do not invert the ratio; if the generated answer is longer than the target, the ratio must be greater than 1.")
     if "percent" in lower and "short sentence" in lower:
         hints.append("When the answer is a percentage, use the word percent rather than only the % symbol.")
+    if "return only the corrected function" in lower or "corrected function" in lower:
+        hints.append("Return raw corrected function code only; do not wrap it in Markdown or add explanation.")
+    if "def percent(part, total)" in lower:
+        hints.append("For percent(part, total), return None when total is zero and otherwise use normal division with round(..., 1).")
+    if "def parse_metric(line)" in lower:
+        hints.append("For parse_metric, split on the first colon, strip both fields, and convert the value with int().")
+    if "def clamp_score(score)" in lower:
+        hints.append("For clamp_score, negative scores return 0, scores above 1 return 1, and in-range scores stay unchanged.")
     if "sql" in lower and ("safe" in lower or "safely" in lower):
         hints.append("For safe SQL rewriting, use the words parameterized query and bound parameter placeholder.")
+    if "target=<failed surface>" in lower and "check=<verifier type>" in lower and "next=<data action>" in lower:
+        hints.append("Follow the TARGET=...; CHECK=...; NEXT=... schema exactly on one line.")
+        hints.append("For code-repair failures, mention code repair, regex and python tests, and verifier-backed hard rows.")
+    if "evidence=<short finding>" in lower and "action=<one next action>" in lower:
+        hints.append("Follow the EVIDENCE=...; ACTION=... schema exactly on one line.")
+        hints.append("For fresh held-out failures, mention fresh held-out and verifier-backed hard rows.")
+    if '"metric"' in lower and '"failure"' in lower and '"next_step"' in lower:
+        hints.append("Return one-line compact JSON only with metric, failure, and next_step keys.")
+        if "adaptive compute" in lower and "more calls" in lower:
+            hints.append("Use metric clean_cases_per_main_call, failure extra calls without more clean cases, and next_step improve data and verifiers.")
+    if '"surface"' in lower and '"issue"' in lower and '"action"' in lower:
+        hints.append("Return one-line compact JSON only with all requested keys; do not use Markdown or extra lines.")
+        if "planning" in lower and "required" in lower:
+            hints.append("For planning required-term failures, use surface planning, issue missing required terms, and action add required-any verifier rows.")
     if re.search(r"\bexactly\s+three\b", lower) and "bullet" in lower:
-        hints.append("Use exactly three '- ' lines and keep each line under twelve words.")
+        hints.append("Use exactly three '- ' lines and keep each line under eight words.")
         hints.append("Keep the total answer under 220 characters.")
     if re.search(r"\bexactly\s+two\b", lower) and "sentence" in lower:
         hints.append("Output exactly two sentences: include save or reduce first, then defer uncertain cases to an LLM judge.")
@@ -231,6 +253,15 @@ def main_prompt_distillation_hints(user_prompt: str) -> list[str]:
         hints.append("Keep under 320 characters while mentioning independent samples, verifier scoring, union coverage, and contradiction checks.")
     if "lora" in lower and ("worth" in lower or "train" in lower):
         hints.append("Mention held-out evals, self-refusal, role leakage, verbosity, and format failures.")
+    if "data-format fixes" in lower and "lora" in lower:
+        hints.append("For data-format fixes, mention source/split metadata, verifier label metadata, and held-out reserved for evaluation, not training.")
+    if "adaptive compute" in lower and "clean cases per main agent call" in lower:
+        hints.append("For adaptive-compute follow-up, keep it experimental, add verifier-backed hard rows, and recompare clean cases per Main Agent call on rotated held-out data.")
+    if "code-repair data" in lower and ("regex" in lower or "python tests" in lower):
+        hints.append("For code-repair data, mention one intended bug, regex checks, and tiny Python tests before accepting rows.")
+        hints.append("End the final step with the exact phrase before accepting rows.")
+    if "rotated held-out failures" in lower and ("without copying" in lower or "copying held-out" in lower):
+        hints.append("Use failure labels only, write new synthetic hard rows, reserve held-out prompts for evaluation, and rerun a fresh rotated gate.")
     if (
         ("ablation" in lower or "compare" in lower or "comparing" in lower)
         and ("baseline" in lower or "same runner" in lower or "benchmark" in lower or "qwen3" in lower)

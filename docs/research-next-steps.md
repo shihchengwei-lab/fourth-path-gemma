@@ -170,6 +170,11 @@ with regex plus restricted Python tests, strict-format rows with one-line or JSO
 shape checks, and planning rows that require explicit data/verifier/evaluation
 terms without copying held-out prompts.
 
+The expanded hard corpus is now a tuned regression surface after prompt-side
+distillation hints lifted `qwen3-8b-s2t-lite` to 30/30 clean on
+`runs\main-eval-qwen3-8b-s2t-lite-hard-expanded-post-hints-v3-20260502.json`.
+Use a fresh rotated or public surface for broader capability claims.
+
 ## Do Not Do Yet
 
 - Do not start KV-cache integration.
