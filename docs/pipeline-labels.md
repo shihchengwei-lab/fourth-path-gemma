@@ -1,6 +1,6 @@
 # Pipeline Labels (`agent:*`)
 
-This document defines all six `agent:*` GitHub labels used by the fourth-path-gemma agent pipeline.
+This document defines all six `agent:*` GitHub labels used by the fourth-path-local-lab agent pipeline.
 These labels coordinate state transitions between the workflow, Claude, Codex, and SHIHCHENG.
 
 ---

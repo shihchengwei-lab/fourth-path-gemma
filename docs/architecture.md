@@ -1,4 +1,4 @@
-# Runtime Architecture — fourth-path-gemma
+# Runtime Architecture — fourth-path-local-lab
 
 ## Pipeline flow
 

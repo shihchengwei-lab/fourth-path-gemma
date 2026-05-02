@@ -2,7 +2,7 @@
 
 ## 這個 repo 是什麼
 
-`fourth-path-gemma` — separation-and-audit-alignment 的 local prototype。v3 在此 repo 加 **code review 層**治理（雲端 PR review 流程）。
+`fourth-path-local-lab` — separation-and-audit-alignment 的 local prototype。v3 在此 repo 加 **code review 層**治理（雲端 PR review 流程）。
 
 ## Review 指引
 

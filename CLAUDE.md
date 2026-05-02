@@ -2,7 +2,7 @@
 
 ## 這個 repo 是什麼
 
-`fourth-path-gemma` — [separation-and-audit-alignment](https://github.com/shihchengwei-lab/separation-and-audit-alignment) 的 local prototype（本機 LLM + canon.md + Cold Eyes runtime 層）。
+`fourth-path-local-lab` — [separation-and-audit-alignment](https://github.com/shihchengwei-lab/separation-and-audit-alignment) 的 local prototype（本機 LLM + canon.md + Cold Eyes runtime 層）。
 
 v3 在此 repo 加 **code review 層**治理。
 

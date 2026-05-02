@@ -1,6 +1,6 @@
-# Fourth Path Gemma Prototype
+# Fourth Path Local Lab
 
-Local open-weight model prototype for the Fourth Path architecture described in
+Local open-weight model lab for the Fourth Path architecture described in
 [`separation-and-audit-alignment`](https://github.com/shihchengwei-lab/separation-and-audit-alignment).
 
 This repository is a reference implementation, not a proven safety system. It is
@@ -72,13 +72,7 @@ the full chat history, the Main Agent system prompt, or hidden reasoning traces.
 That is enough for output safety only. Side effects need their own pre-execution
 audit boundary because damage can happen before any final text is returned.
 
-## Current Model Target
-
-The compatibility baseline still targets:
-
-```text
-gemma4:e4b
-```
+## Current Local Model Targets
 
 For the measured local machine, 16GB RAM and an RTX 4060 Laptop GPU with 8GB
 VRAM, the current compute-first recommendation is:
@@ -108,6 +102,12 @@ Cold Eyes still receives only the final candidate plus the canon.
 
 See [Local Compute Maximization Plan](docs/compute-maximization.md) for the
 model-choice rationale, algorithm notes, and measurement loop.
+
+The legacy compatibility profile still targets:
+
+```text
+gemma4:e4b
+```
 
 See [Qwen3-8B Headroom Audit](docs/headroom-audit-2026-05-02.md) for the
 current continue/stop gate on next-token headroom, paper directions, and
@@ -246,11 +246,13 @@ default.
 
 ## Setup
 
-Install [Ollama](https://ollama.com/) and download the model:
+Install [Ollama](https://ollama.com/) and download the recommended local model:
 
 ```powershell
-ollama pull gemma4:e4b
+ollama pull qwen3:8b
 ```
+
+If you need the legacy compatibility profile, also pull `gemma4:e4b`.
 
 This repository has no Python package dependencies. It uses Python 3.12 standard
 library only.
@@ -667,8 +669,8 @@ python -m unittest discover -s tests -v
 
 - This is a research prototype, not production safety infrastructure.
 - The canon is intentionally small and only demonstrates the data flow.
-- The Gemma model is instruction-tuned and may still carry safety behavior in
-  its weights.
+- Legacy Gemma profiles are instruction-tuned and may still carry safety
+  behavior in their weights.
 - The recommended Qwen3 profile is a local hardware fit, not a measured quality
   guarantee.
 - The deliberate Qwen3 profile can improve candidate structure at test time,

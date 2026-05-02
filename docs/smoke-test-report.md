@@ -4,7 +4,7 @@
 
 ## 結論
 
-整套 v3 agent pipeline 在 sandbox repo `shihchengwei-lab/fourth-path-gemma` 安裝完成、端到端跑通：
+整套 v3 agent pipeline 在 sandbox repo `shihchengwei-lab/fourth-path-local-lab` 安裝完成、端到端跑通：
 
 - ✅ Trigger A（issue + `agent:run` label → Claude 開 PR）
 - ✅ Codex Cloud 自動 review（user-opened PR）
@@ -114,4 +114,4 @@
 - 計畫文件：`agent-pipeline-v3/00–03.md`
 - 主要 PR：#2 (Phase 01)、#10 (X1-revised)、#12 (placeholder 回填)、#16 (allowed_bots)、#19 (簡化 prompt)、#18 (3c 最終驗證)
 - 主要 run：25128253150 (Trigger B happy path success)、25127496761 (refusal log 觸發)
-- Memory：`C:\Users\kk789\.claude\projects\C--Users-kk789-Desktop-fourth-path-gemma\memory\` 的 `project_v3_pipeline_phase01.md` + 三份 feedback 記錄
+- Memory：Claude project memory 的 `project_v3_pipeline_phase01.md` + 三份 feedback 記錄
