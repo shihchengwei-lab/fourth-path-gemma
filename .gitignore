@@ -1,6 +1,8 @@
 runs/*.jsonl
 runs/*.json
 runs/*.log
+runs/*.ps1
+runs/*.txt
 runs/public-bench/
 runs/public-bench-audit/
 runs/public-bench-*/

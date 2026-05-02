@@ -248,6 +248,9 @@ def run_nvidia_teacher_export(
     total_planned = len(selected_records) * len(selected_models) * samples_per_model
     request_number = 0
 
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text("", encoding="utf-8")
+
     for record in selected_records:
         for teacher_model in selected_models:
             for sample_index in range(1, samples_per_model + 1):
@@ -343,23 +346,18 @@ def run_nvidia_teacher_export(
                         }
                     )
                 if accepted:
-                    rows.append(
-                        nvidia_teacher_export_row(
-                            record,
-                            answer,
-                            teacher_model=teacher_model,
-                            sample_index=sample_index,
-                            reward=reward,
-                            main_agent_system_prompt=main_agent_system_prompt,
-                            include_system=include_system,
-                        )
+                    row = nvidia_teacher_export_row(
+                        record,
+                        answer,
+                        teacher_model=teacher_model,
+                        sample_index=sample_index,
+                        reward=reward,
+                        main_agent_system_prompt=main_agent_system_prompt,
+                        include_system=include_system,
                     )
-
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    output_file.write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + ("\n" if rows else ""),
-        encoding="utf-8",
-    )
+                    rows.append(row)
+                    with output_file.open("a", encoding="utf-8") as file:
+                        file.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     accepted_cases = [case for case in cases if case.accepted]
     model_attempt_counts = Counter(case.teacher_model for case in cases)
