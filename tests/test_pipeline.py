@@ -2052,6 +2052,7 @@ class PipelineTests(unittest.TestCase):
                 "--limit-records",
                 "3",
                 "--stop-on-error",
+                "--progress",
                 "--no-system",
                 "--json",
             ]
@@ -2067,6 +2068,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.requests_per_minute, 24)
         self.assertEqual(args.limit_records, 3)
         self.assertTrue(args.stop_on_error)
+        self.assertTrue(args.progress)
         self.assertTrue(args.no_system)
         self.assertTrue(args.json)
 

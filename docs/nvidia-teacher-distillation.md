@@ -27,6 +27,14 @@ data report:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1
 ```
 
+The helper uses `--progress` so the PowerShell window prints request start,
+done, and failed events without printing prompt text or generated answers. For
+a one-request smoke test before a broader batch:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1 -Model minimaxai/minimax-m2.7 -LimitRecords 1 -Timeout 180
+```
+
 ## Fast Distill Command
 
 The default model order prioritizes the short-window and useful current

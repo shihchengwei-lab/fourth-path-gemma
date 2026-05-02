@@ -2537,6 +2537,38 @@ def main_nvidia_teacher_export_command(args: argparse.Namespace) -> int:
         return 1
 
     client = NvidiaTeacherClient.from_env(timeout=args.timeout)
+    progress_callback = None
+    if args.progress:
+        def progress_callback(event: dict[str, Any]) -> None:
+            if event["event"] == "request_start":
+                print(
+                    (
+                        f"[nvidia] request {event['request_number']}/{event['total_planned']} "
+                        f"model={event['teacher_model']} record={event['record_id']}"
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif event["event"] == "request_done":
+                status = "accepted" if event["accepted"] else "rejected"
+                issue_text = ",".join(event["issues"]) if event["issues"] else "none"
+                print(
+                    (
+                        f"[nvidia] done {event['request_number']}/{event['total_planned']} "
+                        f"model={event['teacher_model']} status={status} issues={issue_text}"
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif event["event"] == "request_failed":
+                print(
+                    (
+                        f"[nvidia] failed {event['request_number']}/{event['total_planned']} "
+                        f"model={event['teacher_model']} error={event['error']}"
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
     data = run_nvidia_teacher_export(
         client=client,
         records=records,
@@ -2554,6 +2586,7 @@ def main_nvidia_teacher_export_command(args: argparse.Namespace) -> int:
         limit_records=args.limit_records,
         continue_on_error=not args.stop_on_error,
         requests_per_minute=args.requests_per_minute,
+        progress=progress_callback,
     )
     print_json_or_text(data, args.json, render_nvidia_teacher_export(data))
     return 0

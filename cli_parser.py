@@ -573,6 +573,11 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
         action="store_true",
         help="Stop at the first NVIDIA request error instead of continuing to the next model/sample.",
     )
+    main_nvidia.add_argument(
+        "--progress",
+        action="store_true",
+        help="Print per-request progress to stderr without printing prompt or generated text.",
+    )
     main_nvidia.add_argument("--timeout", type=int, default=config.default_timeout_seconds, help="NVIDIA API timeout seconds.")
     main_nvidia.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 

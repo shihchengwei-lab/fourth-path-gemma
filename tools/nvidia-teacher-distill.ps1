@@ -4,7 +4,7 @@ param(
     [int]$LimitRecords = 3,
     [int]$SamplesPerModel = 1,
     [double]$RequestsPerMinute = 36,
-    [int]$Timeout = 1200,
+    [int]$Timeout = 180,
     [string[]]$Model = @(),
     [switch]$SkipReport,
     [switch]$DryRun
@@ -50,6 +50,7 @@ $exportArgs = @(
     "$RequestsPerMinute",
     "--timeout",
     "$Timeout",
+    "--progress",
     "--json"
 )
 
@@ -70,6 +71,11 @@ if ($DryRun) {
     }
     exit 0
 }
+
+Write-Host "Starting NVIDIA teacher distillation from $repoRoot"
+Write-Host "Input: $InputFile"
+Write-Host "Output: $OutputFile"
+Write-Host "LimitRecords: $LimitRecords; SamplesPerModel: $SamplesPerModel; RequestsPerMinute: $RequestsPerMinute; Timeout: $Timeout"
 
 & python @exportArgs
 if ($LASTEXITCODE -ne 0) {

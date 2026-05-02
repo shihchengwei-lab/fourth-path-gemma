@@ -225,6 +225,7 @@ def run_nvidia_teacher_export(
     requests_per_minute: float = DEFAULT_NVIDIA_REQUESTS_PER_MINUTE,
     clock: Callable[[], float] = time.perf_counter,
     sleeper: Callable[[float], None] = time.sleep,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     selected_models = tuple(teacher_models)
     if not selected_models:
@@ -244,10 +245,13 @@ def run_nvidia_teacher_export(
     started = time.perf_counter()
     request_interval_seconds = 60.0 / requests_per_minute if requests_per_minute else 0.0
     next_request_at = 0.0
+    total_planned = len(selected_records) * len(selected_models) * samples_per_model
+    request_number = 0
 
     for record in selected_records:
         for teacher_model in selected_models:
             for sample_index in range(1, samples_per_model + 1):
+                request_number += 1
                 sample_started = time.perf_counter()
                 try:
                     if request_interval_seconds:
@@ -256,6 +260,18 @@ def run_nvidia_teacher_export(
                             sleeper(next_request_at - now)
                             now = clock()
                         next_request_at = now + request_interval_seconds
+                    if progress is not None:
+                        progress(
+                            {
+                                "event": "request_start",
+                                "request_number": request_number,
+                                "total_planned": total_planned,
+                                "record_id": record.record_id,
+                                "category": record.category,
+                                "teacher_model": teacher_model,
+                                "sample_index": sample_index,
+                            }
+                        )
                     answer = client.chat(
                         model=teacher_model,
                         system=NVIDIA_TEACHER_SYSTEM_PROMPT,
@@ -266,6 +282,17 @@ def run_nvidia_teacher_export(
                 except SetupError as exc:
                     if not continue_on_error:
                         raise
+                    if progress is not None:
+                        progress(
+                            {
+                                "event": "request_failed",
+                                "request_number": request_number,
+                                "total_planned": total_planned,
+                                "record_id": record.record_id,
+                                "teacher_model": teacher_model,
+                                "error": type(exc).__name__,
+                            }
+                        )
                     cases.append(
                         NvidiaTeacherCase(
                             record_id=record.record_id,
@@ -303,6 +330,18 @@ def run_nvidia_teacher_export(
                     total_tokens=int(usage.get("total_tokens", 0)),
                 )
                 cases.append(case)
+                if progress is not None:
+                    progress(
+                        {
+                            "event": "request_done",
+                            "request_number": request_number,
+                            "total_planned": total_planned,
+                            "record_id": record.record_id,
+                            "teacher_model": teacher_model,
+                            "accepted": accepted,
+                            "issues": issues,
+                        }
+                    )
                 if accepted:
                     rows.append(
                         nvidia_teacher_export_row(
