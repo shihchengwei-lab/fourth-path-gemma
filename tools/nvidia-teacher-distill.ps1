@@ -81,9 +81,12 @@ $exportArgs = @(
     "--json"
 )
 
-foreach ($modelId in $Model) {
-    if ($modelId.Trim()) {
-        $exportArgs += @("--model", $modelId)
+foreach ($modelArg in $Model) {
+    foreach ($modelId in ($modelArg -split ",")) {
+        $cleanModelId = $modelId.Trim()
+        if ($cleanModelId) {
+            $exportArgs += @("--model", $cleanModelId)
+        }
     }
 }
 
