@@ -20,7 +20,7 @@ from compute_gates import (
 )
 from core_types import SetupError
 from latent_headroom import DEFAULT_LATENT_HEADROOM_VARIANTS
-from nvidia_teacher import DEFAULT_NVIDIA_TEACHER_MODELS
+from nvidia_teacher import DEFAULT_NVIDIA_REQUESTS_PER_MINUTE, DEFAULT_NVIDIA_TEACHER_MODELS
 from runtime_config import ModelOptions, RoleRuntime, RuntimeConfig
 
 
@@ -548,6 +548,15 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
     )
     main_nvidia.add_argument("--temperature", type=float, default=0.2, help="Teacher sampling temperature. Default: 0.2.")
     main_nvidia.add_argument("--max-tokens", type=int, default=512, help="Teacher maximum generated tokens. Default: 512.")
+    main_nvidia.add_argument(
+        "--requests-per-minute",
+        type=float,
+        default=DEFAULT_NVIDIA_REQUESTS_PER_MINUTE,
+        help=(
+            "Client-side NVIDIA request throttle. "
+            f"Default: {DEFAULT_NVIDIA_REQUESTS_PER_MINUTE:g}; set 0 to disable."
+        ),
+    )
     main_nvidia.add_argument(
         "--limit-records",
         type=int,

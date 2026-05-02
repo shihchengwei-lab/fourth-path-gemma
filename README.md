@@ -433,7 +433,8 @@ python main.py main-training-data-report --input-file runs\main-agent-nvidia-tea
 The default NVIDIA teacher order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3
 Super 120B-A12B, GPT-OSS 120B, then Qwen3-Next 80B-A3B. The export writes only
 local-verifier-passing SFT rows under git-ignored `runs/` and does not print
-prompts, targets, or generated answers in its summary. See
+prompts, targets, or generated answers in its summary. It throttles to 36 RPM
+by default, below a 40 RPM endpoint limit. See
 [NVIDIA Teacher Distillation](docs/nvidia-teacher-distillation.md).
 
 For public benchmark comparisons instead of repo-owned claims, see

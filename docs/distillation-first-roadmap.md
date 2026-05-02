@@ -86,7 +86,8 @@ python main.py main-training-data-report --input-file runs\main-agent-nvidia-tea
 The default order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3 Super 120B-A12B,
 GPT-OSS 120B, then Qwen3-Next 80B-A3B. The command continues past a failed
 teacher endpoint by default and writes only local-verifier-passing rows to
-git-ignored `runs/`.
+git-ignored `runs/`. It throttles to 36 RPM by default, below a 40 RPM endpoint
+limit.
 
 This checks the current seed, hard, held-out, rotated held-out, and fresh
 held-out corpora together for duplicate ids, duplicate prompt hashes,

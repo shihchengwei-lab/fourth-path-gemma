@@ -21,6 +21,7 @@ from training_data import verifier_metadata_labels
 NVIDIA_BASE_URL_ENV = "NVIDIA_BASE_URL"
 NVIDIA_API_KEY_ENV = "NVIDIA_API_KEY"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+DEFAULT_NVIDIA_REQUESTS_PER_MINUTE = 36.0
 DEFAULT_NVIDIA_TEACHER_MODELS = (
     "deepseek-ai/deepseek-v3.2",
     "minimaxai/minimax-m2.7",
@@ -221,6 +222,9 @@ def run_nvidia_teacher_export(
     verifier_issues: Callable[[str, dict[str, Any]], list[str]],
     limit_records: int = 0,
     continue_on_error: bool = True,
+    requests_per_minute: float = DEFAULT_NVIDIA_REQUESTS_PER_MINUTE,
+    clock: Callable[[], float] = time.perf_counter,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     selected_models = tuple(teacher_models)
     if not selected_models:
@@ -231,17 +235,27 @@ def run_nvidia_teacher_export(
         raise SetupError("--min-reward must be between 0 and 1.")
     if limit_records < 0:
         raise SetupError("--limit-records must be zero or greater.")
+    if requests_per_minute < 0:
+        raise SetupError("--requests-per-minute must be zero or greater.")
 
     selected_records = records[:limit_records] if limit_records else records
     cases: list[NvidiaTeacherCase] = []
     rows: list[dict[str, Any]] = []
     started = time.perf_counter()
+    request_interval_seconds = 60.0 / requests_per_minute if requests_per_minute else 0.0
+    next_request_at = 0.0
 
     for record in selected_records:
         for teacher_model in selected_models:
             for sample_index in range(1, samples_per_model + 1):
                 sample_started = time.perf_counter()
                 try:
+                    if request_interval_seconds:
+                        now = clock()
+                        if next_request_at > now:
+                            sleeper(next_request_at - now)
+                            now = clock()
+                        next_request_at = now + request_interval_seconds
                     answer = client.chat(
                         model=teacher_model,
                         system=NVIDIA_TEACHER_SYSTEM_PROMPT,
@@ -326,6 +340,8 @@ def run_nvidia_teacher_export(
         "max_length_ratio": max_length_ratio,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "requests_per_minute": requests_per_minute,
+        "request_interval_seconds": request_interval_seconds,
         "accepted_category_counts": sorted_count_by(case.category for case in accepted_cases),
         "accepted_model_counts": dict(sorted(model_accept_counts.items())),
         "model_attempt_counts": dict(sorted(model_attempt_counts.items())),
@@ -344,6 +360,7 @@ def render_nvidia_teacher_export(data: dict[str, Any]) -> str:
         f"Models: {', '.join(data['teacher_models'])}",
         f"Records: {data['records']}",
         f"Samples/model: {data['samples_per_model']}",
+        f"Requests/minute: {data['requests_per_minute']}",
         f"Total samples: {data['total_samples']}",
         f"Accepted samples: {data['accepted_samples']}",
         f"Acceptance rate: {data['acceptance_rate']:.3f}",

@@ -134,6 +134,7 @@ from main_eval import (
 )
 from nvidia_teacher import (
     DEFAULT_NVIDIA_BASE_URL,
+    DEFAULT_NVIDIA_REQUESTS_PER_MINUTE,
     DEFAULT_NVIDIA_TEACHER_MODELS,
     NvidiaTeacherClient,
     normalize_nvidia_base_url,
@@ -2552,6 +2553,7 @@ def main_nvidia_teacher_export_command(args: argparse.Namespace) -> int:
         verifier_issues=main_verifier_issues,
         limit_records=args.limit_records,
         continue_on_error=not args.stop_on_error,
+        requests_per_minute=args.requests_per_minute,
     )
     print_json_or_text(data, args.json, render_nvidia_teacher_export(data))
     return 0

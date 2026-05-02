@@ -2047,6 +2047,8 @@ class PipelineTests(unittest.TestCase):
                 "0.1",
                 "--max-tokens",
                 "64",
+                "--requests-per-minute",
+                "24",
                 "--limit-records",
                 "3",
                 "--stop-on-error",
@@ -2062,6 +2064,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.max_length_ratio, 4)
         self.assertEqual(args.temperature, 0.1)
         self.assertEqual(args.max_tokens, 64)
+        self.assertEqual(args.requests_per_minute, 24)
         self.assertEqual(args.limit_records, 3)
         self.assertTrue(args.stop_on_error)
         self.assertTrue(args.no_system)
@@ -3028,6 +3031,7 @@ class PipelineTests(unittest.TestCase):
                 max_length_ratio=4,
                 temperature=0.1,
                 max_tokens=64,
+                requests_per_minute=0,
                 main_agent_system_prompt=main.MAIN_AGENT_SYSTEM_PROMPT,
                 candidate_issues=main.main_candidate_issues,
                 verifier_issues=main.main_verifier_issues,
@@ -3080,6 +3084,7 @@ class PipelineTests(unittest.TestCase):
                 output_file=output_file,
                 teacher_models=["expired/model", "minimaxai/minimax-m2.7"],
                 samples_per_model=1,
+                requests_per_minute=0,
                 main_agent_system_prompt=main.MAIN_AGENT_SYSTEM_PROMPT,
                 candidate_issues=main.main_candidate_issues,
                 verifier_issues=main.main_verifier_issues,
@@ -3091,6 +3096,47 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(data["issue_counts"]["teacher_request_failed"], 1)
         self.assertEqual(data["cases"][0]["error"], "SetupError")
         self.assertEqual(json.loads(exported_lines[0])["teacher_model"], "minimaxai/minimax-m2.7")
+
+    def test_nvidia_teacher_export_rate_limits_between_requests(self):
+        records = [
+            main.MainAgentRecord(
+                record_id="summary-1",
+                category="summary",
+                prompt="Give a concise project summary.",
+                target_response="Useful direct answer.",
+            )
+        ]
+        client = FakeNvidiaTeacherClient(["Useful direct answer.", "Useful direct answer."])
+        current_time = [0.0]
+        sleeps = []
+
+        def clock():
+            return current_time[0]
+
+        def sleeper(seconds):
+            sleeps.append(round(seconds, 3))
+            current_time[0] += seconds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_file = Path(tmp) / "nvidia.jsonl"
+            data = main.run_nvidia_teacher_export(
+                client=client,
+                records=records,
+                output_file=output_file,
+                teacher_models=["deepseek-ai/deepseek-v3.2", "minimaxai/minimax-m2.7"],
+                samples_per_model=1,
+                requests_per_minute=60,
+                main_agent_system_prompt=main.MAIN_AGENT_SYSTEM_PROMPT,
+                candidate_issues=main.main_candidate_issues,
+                verifier_issues=main.main_verifier_issues,
+                clock=clock,
+                sleeper=sleeper,
+            )
+
+        self.assertEqual(sleeps, [1.0])
+        self.assertEqual(data["requests_per_minute"], 60)
+        self.assertEqual(data["request_interval_seconds"], 1.0)
+        self.assertEqual(data["total_samples"], 2)
 
     def test_main_limo_curate_selects_high_quality_templates_without_summary_text(self):
         low_quality = {

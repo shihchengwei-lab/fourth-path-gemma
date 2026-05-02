@@ -46,6 +46,19 @@ If one model endpoint is unavailable, the command records
 `teacher_request_failed` and continues to the next model by default. Add
 `--stop-on-error` when debugging a single endpoint.
 
+The command throttles to 36 requests per minute by default, leaving headroom
+under a 40 RPM endpoint limit. Override it only when the provider limit changes:
+
+```powershell
+python main.py main-nvidia-teacher-export `
+  --requests-per-minute 36 `
+  --limit-records 10 `
+  --json
+```
+
+Set `--requests-per-minute 0` only for a local mock or a separately rate-limited
+wrapper.
+
 Override the model list when the catalog changes:
 
 ```powershell
