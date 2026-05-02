@@ -443,7 +443,7 @@ For capability headroom after `qwen3-8b-s2t-lite` saturates the original
 40-record eval, use the harder verifier-backed corpus:
 
 ```powershell
-python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 16 --min-category 2 --json
+python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 24 --min-category 2 --json
 python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
 ```
 

@@ -2097,7 +2097,7 @@ class PipelineTests(unittest.TestCase):
         data = main.inference_compute_gate_data(main.PROJECT_ROOT / "data" / "cold_eyes_seed.jsonl")
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["data_quality"]["total_records"], 76)
+        self.assertEqual(data["data_quality"]["total_records"], 84)
         self.assertEqual(data["verifier_tool"]["distill_total"], 44)
         self.assertEqual(
             data["adaptive_compute_plans"]["strict_output_shape"]["strategy"],
@@ -2118,11 +2118,11 @@ class PipelineTests(unittest.TestCase):
         self.assertGreaterEqual(data["architecture_adversarial"]["total"], 19)
         self.assertGreaterEqual(data["architecture_adversarial"]["layers"]["action"], 6)
         self.assertEqual(data["main_corpora"]["seed"]["total"], 40)
-        self.assertEqual(data["main_corpora"]["hard"]["total"], 16)
+        self.assertEqual(data["main_corpora"]["hard"]["total"], 24)
         self.assertEqual(data["main_corpora"]["heldout"]["total"], 12)
         self.assertEqual(data["main_corpora"]["rotated_heldout"]["total"], 8)
         self.assertEqual(data["data_quality"]["verifier_type_count"], 8)
-        self.assertEqual(data["sft_format"]["rows"], 76)
+        self.assertEqual(data["sft_format"]["rows"], 84)
         self.assertEqual(len(data["sft_format"]["source_paths"]), 4)
         self.assertEqual(data["sft_format"]["errors"], [])
         self.assertEqual(data["distill"]["total"], 44)
@@ -2249,24 +2249,24 @@ class PipelineTests(unittest.TestCase):
         result = main.check_main_agent_corpus(main.PROJECT_ROOT / "data" / "main_agent_hard_seed.jsonl")
 
         self.assertEqual(result.errors, [])
-        self.assertEqual(result.total, 16)
-        self.assertEqual(result.verifier_records, 16)
-        self.assertGreaterEqual(result.categories["hard_math"], 4)
-        self.assertGreaterEqual(result.categories["hard_code_repair"], 4)
+        self.assertEqual(result.total, 24)
+        self.assertEqual(result.verifier_records, 24)
+        self.assertGreaterEqual(result.categories["hard_math"], 6)
+        self.assertGreaterEqual(result.categories["hard_code_repair"], 6)
 
     def test_main_data_quality_check_passes_default_corpora(self):
         data = main.main_data_quality_check_data(list(main.DEFAULT_MAIN_DATA_QUALITY_FILES))
 
         self.assertEqual(data["errors"], [])
-        self.assertEqual(data["total_records"], 76)
-        self.assertEqual(data["total_verifier_records"], 36)
+        self.assertEqual(data["total_records"], 84)
+        self.assertEqual(data["total_verifier_records"], 44)
         self.assertEqual(data["verifier_type_count"], 8)
-        self.assertEqual(data["verifier_type_totals"]["python_tests"], 2)
+        self.assertEqual(data["verifier_type_totals"]["python_tests"], 4)
         self.assertEqual(data["duplicate_ids"], [])
         self.assertEqual(data["duplicate_prompt_hashes"], [])
         by_name = {Path(file_data["path"]).name: file_data for file_data in data["files"]}
         self.assertEqual(by_name["main_agent_seed.jsonl"]["dominant_category_share"], 0.2)
-        self.assertEqual(by_name["main_agent_hard_seed.jsonl"]["verifier_type_count"], 7)
+        self.assertEqual(by_name["main_agent_hard_seed.jsonl"]["verifier_type_count"], 8)
         self.assertEqual(by_name["main_agent_heldout_seed.jsonl"]["verifier_type_count"], 7)
         self.assertEqual(by_name["main_agent_rotated_heldout_seed.jsonl"]["verifier_type_count"], 8)
 
