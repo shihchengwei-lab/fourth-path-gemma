@@ -60,14 +60,14 @@ It also writes the secret-free command summaries to
 
 ## Fast Distill Command
 
-The default model order prioritizes the short-window and useful current
-endpoints:
+The default model order prioritizes the currently useful endpoints. DeepSeek
+V3.2 was removed from the default path after repeated timeout/latency failures;
+do not use it unless explicitly debugging that endpoint.
 
-1. `deepseek-ai/deepseek-v3.2`
-2. `minimaxai/minimax-m2.7`
-3. `nvidia/nemotron-3-super-120b-a12b`
+1. `minimaxai/minimax-m2.7`
+2. `nvidia/nemotron-3-super-120b-a12b`
+3. `qwen/qwen3-next-80b-a3b-instruct`
 4. `openai/gpt-oss-120b`
-5. `qwen/qwen3-next-80b-a3b-instruct`
 
 Run a small urgent batch first:
 
@@ -139,6 +139,28 @@ python main.py main-training-data-report `
   --require-generated-metadata `
   --json
 ```
+
+When teacher rows are used as a second angle rather than as a bulk
+distillation set, collapse them against the canonical seed before training:
+
+```powershell
+python main.py main-best-plus-alt-export `
+  --seed-file data\main_agent_v6_training_seed.jsonl `
+  --alternate-file runs\main-agent-nvidia-teacher.jsonl `
+  --pair-output-file runs\main-agent-best-plus-one-alt.jsonl `
+  --sft-output-file runs\main-agent-best-plus-one-alt-sft.jsonl `
+  --summary-output-file runs\main-agent-best-plus-one-alt-summary.json `
+  --json
+python main.py main-training-data-report `
+  --input-file runs\main-agent-best-plus-one-alt-sft.jsonl `
+  --require-system `
+  --require-generated-metadata `
+  --json
+```
+
+This keeps every canonical best answer and at most one verifier-accepted,
+textually different teacher answer per record. The result is still training
+material, not capability evidence.
 
 ## NVIDIA API Basis
 

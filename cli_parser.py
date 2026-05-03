@@ -581,6 +581,51 @@ def build_parser(config: CliParserConfig) -> argparse.ArgumentParser:
     main_nvidia.add_argument("--timeout", type=int, default=config.default_timeout_seconds, help="NVIDIA API timeout seconds.")
     main_nvidia.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
+    best_alt = subparsers.add_parser(
+        "main-best-plus-alt-export",
+        help="Build a reproducible best-answer plus one alternate Main Agent SFT set.",
+    )
+    best_alt.add_argument(
+        "--seed-file",
+        default=str(config.project_root / "data" / "main_agent_v6_training_seed.jsonl"),
+        help="Canonical best-answer seed JSONL path. Default: data/main_agent_v6_training_seed.jsonl.",
+    )
+    best_alt.add_argument(
+        "--alternate-file",
+        action="append",
+        default=[],
+        help=(
+            "Verifier-accepted teacher SFT JSONL path. Repeat for multiple files. "
+            "Default: runs/main-agent-nvidia-teacher.jsonl."
+        ),
+    )
+    best_alt.add_argument(
+        "--pair-output-file",
+        default=str(config.project_root / "runs" / "main-agent-best-plus-one-alt.jsonl"),
+        help="Output JSONL path for prompt/best/alternate pairs. Default: runs/main-agent-best-plus-one-alt.jsonl.",
+    )
+    best_alt.add_argument(
+        "--sft-output-file",
+        default=str(config.project_root / "runs" / "main-agent-best-plus-one-alt-sft.jsonl"),
+        help="Output SFT JSONL path. Default: runs/main-agent-best-plus-one-alt-sft.jsonl.",
+    )
+    best_alt.add_argument(
+        "--summary-output-file",
+        help="Optional summary JSON path.",
+    )
+    best_alt.add_argument(
+        "--min-diversity",
+        type=float,
+        default=0.15,
+        help="Minimum answer-diversity score required for an alternate. Default: 0.15.",
+    )
+    best_alt.add_argument(
+        "--no-system",
+        action="store_true",
+        help="Omit the Main Agent system prompt from exported messages.",
+    )
+    best_alt.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
     main_limo = subparsers.add_parser(
         "main-limo-curate",
         help="Curate a small LIMO-style cognitive-template set from accepted Main Agent SFT rows.",

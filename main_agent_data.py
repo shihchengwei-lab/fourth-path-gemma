@@ -417,7 +417,7 @@ PYTHON_TEST_ALLOWED_BUILTINS = {
     "round": round,
     "sum": sum,
 }
-PYTHON_TEST_ALLOWED_METHODS = {"strip", "lower", "replace", "split", "upper"}
+PYTHON_TEST_ALLOWED_METHODS = {"get", "strip", "lower", "replace", "split", "upper"}
 PYTHON_TEST_ALLOWED_NODES = (
     ast.Module,
     ast.FunctionDef,
@@ -443,6 +443,7 @@ PYTHON_TEST_ALLOWED_NODES = (
     ast.Subscript,
     ast.Slice,
     ast.ListComp,
+    ast.GeneratorExp,
     ast.comprehension,
     ast.Add,
     ast.Sub,

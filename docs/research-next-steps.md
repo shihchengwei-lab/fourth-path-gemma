@@ -158,7 +158,9 @@ Do these before another architecture refactor round:
    any-clean 3/8, latent-rescued 1/8.)
 9. Use current external teacher endpoints only as verifier-filtered data sources,
    not as runtime dependencies. (Initial hook: `main-nvidia-teacher-export`,
-   defaulting to DeepSeek V3.2 and MiniMax M2.7 first.)
+   defaulting to MiniMax M2.7, Nemotron 3 Super 120B-A12B, Qwen3-Next 80B-A3B,
+   and GPT-OSS 120B; DeepSeek V3.2 is excluded from the default path after
+   repeated unstable smoke runs.)
 
 Local implementation hooks now exist for this backlog:
 

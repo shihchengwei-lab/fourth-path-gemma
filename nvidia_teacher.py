@@ -23,11 +23,10 @@ NVIDIA_API_KEY_ENV = "NVIDIA_API_KEY"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_NVIDIA_REQUESTS_PER_MINUTE = 36.0
 DEFAULT_NVIDIA_TEACHER_MODELS = (
-    "deepseek-ai/deepseek-v3.2",
     "minimaxai/minimax-m2.7",
     "nvidia/nemotron-3-super-120b-a12b",
-    "openai/gpt-oss-120b",
     "qwen/qwen3-next-80b-a3b-instruct",
+    "openai/gpt-oss-120b",
 )
 NVIDIA_TEACHER_SYSTEM_PROMPT = """You are an external teacher generating supervised data for a small local Main Agent.
 Answer the user's task directly.

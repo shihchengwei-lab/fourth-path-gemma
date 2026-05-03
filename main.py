@@ -181,9 +181,11 @@ from training_data import (
     main_sft_messages as main_sft_messages_core,
     mix_distill_bucket,
     mix_distill_row_score,
+    render_main_best_plus_alt_export,
     render_main_sft_export,
     render_main_limo_curate,
     render_main_mix_distill_curate,
+    run_main_best_plus_alt_export,
     render_training_data_quality_report,
     run_main_limo_curate,
     run_main_mix_distill_curate,
@@ -2425,6 +2427,43 @@ def main_nvidia_teacher_export_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def main_best_plus_alt_export_command(args: argparse.Namespace) -> int:
+    records, errors, total = load_main_agent_records(Path(args.seed_file))
+    if errors:
+        result = MainAgentCheck(Path(args.seed_file), total, {}, errors)
+        print_json_or_text(result.public_dict(), args.json, render_main_agent_check(result))
+        return 1
+
+    alternate_files = args.alternate_file or [str(PROJECT_ROOT / "runs" / "main-agent-nvidia-teacher.jsonl")]
+    alternate_rows: list[dict[str, Any]] = []
+    alternate_errors: list[str] = []
+    for input_file in alternate_files:
+        rows, errors, _ = load_sft_jsonl_rows(Path(input_file))
+        alternate_rows.extend(rows)
+        alternate_errors.extend(f"{input_file}: {error}" for error in errors)
+    if alternate_errors:
+        data = {"alternate_files": alternate_files, "errors": alternate_errors}
+        print_json_or_text(data, args.json, "\n".join(alternate_errors))
+        return 1
+
+    data = run_main_best_plus_alt_export(
+        records,
+        alternate_rows,
+        pair_output_file=Path(args.pair_output_file),
+        sft_output_file=Path(args.sft_output_file),
+        system_prompt=MAIN_AGENT_SYSTEM_PROMPT,
+        include_system=not args.no_system,
+        min_diversity=args.min_diversity,
+    )
+    if args.summary_output_file:
+        summary_path = Path(args.summary_output_file)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        data["summary_file"] = str(summary_path)
+        summary_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    print_json_or_text(data, args.json, render_main_best_plus_alt_export(data))
+    return 0
+
+
 def main_limo_curate_command(args: argparse.Namespace) -> int:
     rows, errors, total = load_sft_jsonl_rows(Path(args.input_file))
     if errors:
@@ -3231,6 +3270,7 @@ def command_handlers() -> dict[str, Any]:
         "main-contrast-export": main_contrast_export_command,
         "main-r1-sample-export": main_r1_sample_export_command,
         "main-nvidia-teacher-export": main_nvidia_teacher_export_command,
+        "main-best-plus-alt-export": main_best_plus_alt_export_command,
         "main-limo-curate": main_limo_curate_command,
         "main-mix-distill-curate": main_mix_distill_curate_command,
         "main-training-data-report": main_training_data_report_command,

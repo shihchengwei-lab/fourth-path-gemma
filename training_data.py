@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +80,8 @@ def infer_main_sft_source_split(input_file: Path) -> tuple[str, str]:
         return "synthetic_rotated_heldout", "heldout_eval"
     if "heldout" in name:
         return "synthetic_heldout", "heldout_eval"
+    if "v6_training" in name:
+        return "codex_golden_claude_second_opinion", "train_seed"
     if "hard" in name:
         return "synthetic_hard", "train_hard"
     return "synthetic_seed", "train_seed"
@@ -282,6 +285,267 @@ def training_row_assistant_text(row: dict[str, Any]) -> str:
         content = message.get("content")
         return content.strip() if isinstance(content, str) else ""
     return ""
+
+
+def training_row_user_text(row: dict[str, Any]) -> str:
+    messages = row.get("messages")
+    if not isinstance(messages, list):
+        return ""
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        return content.strip() if isinstance(content, str) else ""
+    return ""
+
+
+def answer_diversity_score(best_text: str, alternate_text: str) -> float:
+    best_tokens = set(re.findall(r"\w+", best_text.lower()))
+    alternate_tokens = set(re.findall(r"\w+", alternate_text.lower()))
+    if best_tokens or alternate_tokens:
+        overlap = len(best_tokens & alternate_tokens)
+        union = len(best_tokens | alternate_tokens)
+        token_distance = 1.0 - _safe_ratio(overlap, union)
+    else:
+        token_distance = 0.0 if best_text == alternate_text else 1.0
+    length_distance = _safe_ratio(
+        abs(len(best_text) - len(alternate_text)),
+        max(len(best_text), len(alternate_text), 1),
+    )
+    return round((token_distance * 0.8) + (length_distance * 0.2), 4)
+
+
+def _training_row_labels(row: dict[str, Any]) -> list[str]:
+    labels = row.get("verifier_labels")
+    return [label for label in labels if isinstance(label, str)] if isinstance(labels, list) else []
+
+
+def _is_accepted_teacher_alternate(row: dict[str, Any]) -> bool:
+    labels = set(_training_row_labels(row))
+    accepted_by = row.get("accepted_by")
+    return accepted_by == "local_verifier" or "accepted_by_local_verifier" in labels
+
+
+def _best_plus_alt_sft_best_row(
+    record: MainAgentRecord,
+    *,
+    system_prompt: str,
+    include_system: bool,
+) -> dict[str, Any]:
+    return {
+        "id": f"{record.record_id}-best",
+        "record_id": record.record_id,
+        "category": record.category,
+        "source": "codex_golden_claude_best",
+        "split": "train_seed_best",
+        "verifier_labels": [
+            "best_answer",
+            "codex_golden",
+            "claude_second_opinion",
+            "not_clean_claim_evidence",
+            *verifier_metadata_labels(record.verifier),
+        ],
+        "messages": main_sft_messages(record, system_prompt, include_system=include_system),
+    }
+
+
+def _best_plus_alt_sft_alternate_row(
+    record: MainAgentRecord,
+    row: dict[str, Any],
+    *,
+    system_prompt: str,
+    include_system: bool,
+) -> dict[str, Any]:
+    alternate = deepcopy(row)
+    provider = str(alternate.get("teacher_provider") or alternate.get("external_teacher_provider") or "teacher")
+    alternate["id"] = f"{record.record_id}-alt-{re.sub(r'[^A-Za-z0-9_.-]+', '-', provider).strip('-').lower()}"
+    alternate["record_id"] = record.record_id
+    alternate["category"] = record.category
+    alternate["source"] = "nvidia_teacher_second_opinion_alt"
+    alternate["split"] = "train_candidate_alt"
+    labels = [
+        "alternate_answer",
+        *[label for label in _training_row_labels(row) if label != "alternate_answer"],
+        "not_clean_claim_evidence",
+    ]
+    alternate["verifier_labels"] = list(dict.fromkeys(labels))
+    messages = []
+    if include_system:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.extend(
+        [
+            {"role": "user", "content": record.prompt},
+            {"role": "assistant", "content": training_row_assistant_text(row)},
+        ]
+    )
+    alternate["messages"] = messages
+    return alternate
+
+
+def run_main_best_plus_alt_export(
+    records: list[MainAgentRecord],
+    alternate_rows: list[dict[str, Any]],
+    *,
+    pair_output_file: Path,
+    sft_output_file: Path,
+    system_prompt: str,
+    include_system: bool = True,
+    min_diversity: float = 0.15,
+) -> dict[str, Any]:
+    if not 0 <= min_diversity <= 1:
+        raise SetupError("--min-diversity must be between 0 and 1.")
+
+    alternates_by_record: dict[str, list[tuple[float, dict[str, Any]]]] = {}
+    skipped_alternates: Counter[str] = Counter()
+    records_by_id = {record.record_id: record for record in records}
+
+    for row in alternate_rows:
+        record_id = row.get("record_id")
+        if not isinstance(record_id, str) or record_id not in records_by_id:
+            skipped_alternates["unknown_record_id"] += 1
+            continue
+        if not _is_accepted_teacher_alternate(row):
+            skipped_alternates["not_accepted_by_local_verifier"] += 1
+            continue
+        record = records_by_id[record_id]
+        if training_row_user_text(row) != record.prompt:
+            skipped_alternates["prompt_mismatch"] += 1
+            continue
+        alternate_text = training_row_assistant_text(row)
+        if not alternate_text or alternate_text == record.target_response:
+            skipped_alternates["empty_or_identical_answer"] += 1
+            continue
+        score = answer_diversity_score(record.target_response, alternate_text)
+        if score < min_diversity:
+            skipped_alternates["below_min_diversity"] += 1
+            continue
+        alternates_by_record.setdefault(record_id, []).append((score, row))
+
+    pair_rows: list[dict[str, Any]] = []
+    sft_rows: list[dict[str, Any]] = []
+    alternate_category_counts: Counter[str] = Counter()
+    alternate_model_counts: Counter[str] = Counter()
+    records_without_alternate: list[str] = []
+
+    for record in records:
+        candidates = sorted(
+            alternates_by_record.get(record.record_id, []),
+            key=lambda item: (
+                -item[0],
+                str(item[1].get("teacher_model") or ""),
+                str(item[1].get("id") or ""),
+            ),
+        )
+        selected = candidates[0] if candidates else None
+        best_row = _best_plus_alt_sft_best_row(
+            record,
+            system_prompt=system_prompt,
+            include_system=include_system,
+        )
+        sft_rows.append(best_row)
+
+        pair_row = {
+            "id": record.record_id,
+            "category": record.category,
+            "prompt": record.prompt,
+            "best_response": record.target_response,
+            "best_source": getattr(record, "source", None) or "codex_golden_claude_second_opinion",
+            "best_review_note": getattr(record, "review_note", None),
+            "alternate_response": None,
+            "alternate_source": None,
+            "alternate_teacher_model": None,
+            "alternate_source_id": None,
+            "alternate_selection_score": None,
+            "alternate_available_count": len(candidates),
+            "clean_claim_eligible": False,
+            "evidence_level": "training_material_not_capability_evidence",
+        }
+
+        if selected is None:
+            records_without_alternate.append(record.record_id)
+        else:
+            score, row = selected
+            alternate_text = training_row_assistant_text(row)
+            pair_row.update(
+                {
+                    "alternate_response": alternate_text,
+                    "alternate_source": row.get("source"),
+                    "alternate_teacher_model": row.get("teacher_model"),
+                    "alternate_source_id": row.get("id"),
+                    "alternate_selection_score": score,
+                }
+            )
+            sft_rows.append(
+                _best_plus_alt_sft_alternate_row(
+                    record,
+                    row,
+                    system_prompt=system_prompt,
+                    include_system=include_system,
+                )
+            )
+            alternate_category_counts[record.category] += 1
+            teacher_model = row.get("teacher_model")
+            if isinstance(teacher_model, str) and teacher_model:
+                alternate_model_counts[teacher_model] += 1
+
+        pair_rows.append(pair_row)
+
+    pair_output_file.parent.mkdir(parents=True, exist_ok=True)
+    pair_output_file.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in pair_rows) + ("\n" if pair_rows else ""),
+        encoding="utf-8",
+    )
+    sft_output_file.parent.mkdir(parents=True, exist_ok=True)
+    sft_output_file.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in sft_rows) + ("\n" if sft_rows else ""),
+        encoding="utf-8",
+    )
+
+    category_counts = Counter(record.category for record in records)
+    return {
+        "pair_file": str(pair_output_file),
+        "sft_file": str(sft_output_file),
+        "seed_records": len(records),
+        "sft_rows": len(sft_rows),
+        "best_rows": len(records),
+        "alternate_rows": len(sft_rows) - len(records),
+        "records_without_alternate": records_without_alternate,
+        "category_counts": dict(sorted(category_counts.items())),
+        "alternate_category_counts": dict(sorted(alternate_category_counts.items())),
+        "alternate_model_counts": dict(sorted(alternate_model_counts.items())),
+        "skipped_alternate_counts": dict(sorted(skipped_alternates.items())),
+        "selection_rule": (
+            "canonical seed is best; choose at most one verifier-passing teacher "
+            "answer with highest text diversity per record"
+        ),
+        "min_diversity": min_diversity,
+        "evidence_level": "training_material_not_capability_evidence",
+    }
+
+
+def render_main_best_plus_alt_export(data: dict[str, Any]) -> str:
+    lines = [
+        f"Main Agent best+alt export: {data['sft_file']}",
+        f"Pair file: {data['pair_file']}",
+        f"Best rows: {data['best_rows']}",
+        f"Alternate rows: {data['alternate_rows']}",
+        f"SFT rows: {data['sft_rows']}",
+        f"Records without alternate: {len(data['records_without_alternate'])}",
+        f"Minimum diversity: {data['min_diversity']}",
+        f"Evidence level: {data['evidence_level']}",
+    ]
+    if data["alternate_category_counts"]:
+        lines.append("Alternate categories:")
+        lines.extend(f"- {category}: {count}" for category, count in data["alternate_category_counts"].items())
+    if data["alternate_model_counts"]:
+        lines.append("Alternate models:")
+        lines.extend(f"- {model}: {count}" for model, count in data["alternate_model_counts"].items())
+    if data["skipped_alternate_counts"]:
+        lines.append("Skipped alternates:")
+        lines.extend(f"- {reason}: {count}" for reason, count in data["skipped_alternate_counts"].items())
+    return "\n".join(lines)
 
 
 def limo_keyword_count(text: str, keywords: tuple[str, ...]) -> int:

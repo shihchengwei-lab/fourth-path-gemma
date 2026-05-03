@@ -2191,9 +2191,9 @@ class PipelineTests(unittest.TestCase):
             [
                 "main-nvidia-teacher-export",
                 "--model",
-                "deepseek-ai/deepseek-v3.2",
-                "--model",
                 "minimaxai/minimax-m2.7",
+                "--model",
+                "nvidia/nemotron-3-super-120b-a12b",
                 "--samples-per-model",
                 "2",
                 "--min-reward",
@@ -2216,7 +2216,7 @@ class PipelineTests(unittest.TestCase):
         )
 
         self.assertEqual(args.command, "main-nvidia-teacher-export")
-        self.assertEqual(args.model, ["deepseek-ai/deepseek-v3.2", "minimaxai/minimax-m2.7"])
+        self.assertEqual(args.model, ["minimaxai/minimax-m2.7", "nvidia/nemotron-3-super-120b-a12b"])
         self.assertEqual(args.samples_per_model, 2)
         self.assertEqual(args.min_reward, 1)
         self.assertEqual(args.max_length_ratio, 4)
@@ -2226,6 +2226,40 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(args.limit_records, 3)
         self.assertTrue(args.stop_on_error)
         self.assertTrue(args.progress)
+        self.assertTrue(args.no_system)
+        self.assertTrue(args.json)
+
+    def test_parser_accepts_main_best_plus_alt_export_command(self):
+        parser = main.build_parser()
+        args = parser.parse_args(
+            [
+                "main-best-plus-alt-export",
+                "--seed-file",
+                "seed.jsonl",
+                "--alternate-file",
+                "nvidia-a.jsonl",
+                "--alternate-file",
+                "nvidia-b.jsonl",
+                "--pair-output-file",
+                "pairs.jsonl",
+                "--sft-output-file",
+                "sft.jsonl",
+                "--summary-output-file",
+                "summary.json",
+                "--min-diversity",
+                "0.2",
+                "--no-system",
+                "--json",
+            ]
+        )
+
+        self.assertEqual(args.command, "main-best-plus-alt-export")
+        self.assertEqual(args.seed_file, "seed.jsonl")
+        self.assertEqual(args.alternate_file, ["nvidia-a.jsonl", "nvidia-b.jsonl"])
+        self.assertEqual(args.pair_output_file, "pairs.jsonl")
+        self.assertEqual(args.sft_output_file, "sft.jsonl")
+        self.assertEqual(args.summary_output_file, "summary.json")
+        self.assertEqual(args.min_diversity, 0.2)
         self.assertTrue(args.no_system)
         self.assertTrue(args.json)
 
@@ -3124,6 +3158,43 @@ class PipelineTests(unittest.TestCase):
             [],
         )
 
+    def test_main_verifier_allows_get_and_generator_expressions_for_small_repairs(self):
+        total_verifier = {
+            "python_tests": {
+                "function": "total_price",
+                "cases": [
+                    {"args": [[{"price": 3, "qty": 4}, {"price": 2, "qty": 5}]], "expected": 22},
+                    {"args": [[]], "expected": 0},
+                ],
+            }
+        }
+        get_verifier = {
+            "python_tests": {
+                "function": "safe_get",
+                "cases": [
+                    {"args": [{"a": 1}, "a", 0], "expected": 1},
+                    {"args": [{"a": 1}, "b", 0], "expected": 0},
+                ],
+            }
+        }
+
+        self.assertEqual(
+            main.main_verifier_issues(
+                'def total_price(items):\n'
+                '    return sum(item["price"] * item["qty"] for item in items)',
+                total_verifier,
+            ),
+            [],
+        )
+        self.assertEqual(
+            main.main_verifier_issues(
+                "def safe_get(data, key, default=None):\n"
+                "    return data.get(key, default)",
+                get_verifier,
+            ),
+            [],
+        )
+
     def test_export_main_sft_writes_chat_messages(self):
         records = [
             main.MainAgentRecord(
@@ -3169,6 +3240,104 @@ class PipelineTests(unittest.TestCase):
             main.infer_main_sft_source_split(Path("data/main_agent_fresh_heldout_seed.jsonl")),
             ("synthetic_fresh_heldout", "heldout_eval"),
         )
+        self.assertEqual(
+            main.infer_main_sft_source_split(Path("data/main_agent_v6_training_seed.jsonl")),
+            ("codex_golden_claude_second_opinion", "train_seed"),
+        )
+
+    def test_main_best_plus_alt_export_keeps_one_verified_alternate(self):
+        records = [
+            main.MainAgentRecord(
+                record_id="case-1",
+                category="math",
+                prompt="Return the sum of 2 and 3.",
+                target_response="2 + 3 = 5.",
+                verifier={"numeric_answer": 5},
+            ),
+            main.MainAgentRecord(
+                record_id="case-2",
+                category="boundary",
+                prompt="Explain the Main Agent boundary.",
+                target_response="The Main Agent produces candidates only.",
+                verifier={"required_terms": ["candidate"]},
+            ),
+        ]
+        alternates = [
+            {
+                "id": "case-1-nvidia-a",
+                "record_id": "case-1",
+                "category": "math",
+                "source": "nvidia_teacher_second_opinion",
+                "accepted_by": "local_verifier",
+                "teacher_provider": "nvidia",
+                "teacher_model": "model-a",
+                "verifier_labels": ["accepted_by_local_verifier", "teacher_model:model-a"],
+                "messages": [
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "Return the sum of 2 and 3."},
+                    {"role": "assistant", "content": "The total is five."},
+                ],
+            },
+            {
+                "id": "case-1-nvidia-b",
+                "record_id": "case-1",
+                "category": "math",
+                "source": "nvidia_teacher_second_opinion",
+                "accepted_by": "local_verifier",
+                "teacher_provider": "nvidia",
+                "teacher_model": "model-b",
+                "verifier_labels": ["accepted_by_local_verifier", "teacher_model:model-b"],
+                "messages": [
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "Return the sum of 2 and 3."},
+                    {"role": "assistant", "content": "2 + 3 = 5."},
+                ],
+            },
+            {
+                "id": "case-2-nvidia-a",
+                "record_id": "case-2",
+                "category": "boundary",
+                "source": "nvidia_teacher_second_opinion",
+                "accepted_by": "local_verifier",
+                "teacher_provider": "nvidia",
+                "teacher_model": "model-a",
+                "verifier_labels": ["accepted_by_local_verifier", "teacher_model:model-a"],
+                "messages": [
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "Wrong prompt."},
+                    {"role": "assistant", "content": "Final authority is external."},
+                ],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            pair_path = Path(tmp) / "pairs.jsonl"
+            sft_path = Path(tmp) / "sft.jsonl"
+
+            data = main.run_main_best_plus_alt_export(
+                records,
+                alternates,
+                pair_output_file=pair_path,
+                sft_output_file=sft_path,
+                system_prompt=main.MAIN_AGENT_SYSTEM_PROMPT,
+                min_diversity=0.0,
+            )
+            pair_rows = [json.loads(line) for line in pair_path.read_text(encoding="utf-8").splitlines()]
+            sft_rows, errors, total = main.load_sft_jsonl_rows(sft_path)
+
+        self.assertEqual(data["best_rows"], 2)
+        self.assertEqual(data["alternate_rows"], 1)
+        self.assertEqual(data["sft_rows"], 3)
+        self.assertEqual(data["records_without_alternate"], ["case-2"])
+        self.assertEqual(data["skipped_alternate_counts"]["empty_or_identical_answer"], 1)
+        self.assertEqual(data["skipped_alternate_counts"]["prompt_mismatch"], 1)
+        self.assertEqual(pair_rows[0]["alternate_teacher_model"], "model-a")
+        self.assertEqual(total, 3)
+        self.assertEqual(errors, [])
+        self.assertEqual([row["source"] for row in sft_rows], [
+            "codex_golden_claude_best",
+            "nvidia_teacher_second_opinion_alt",
+            "codex_golden_claude_best",
+        ])
 
     def test_sft_format_gate_catches_duplicate_ids_across_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3316,6 +3485,7 @@ class PipelineTests(unittest.TestCase):
     def test_nvidia_teacher_default_models_use_current_minimax_endpoint(self):
         self.assertIn("minimaxai/minimax-m2.7", main.DEFAULT_NVIDIA_TEACHER_MODELS)
         self.assertNotIn("minimaxai/minimax-m2.5", main.DEFAULT_NVIDIA_TEACHER_MODELS)
+        self.assertNotIn("deepseek-ai/deepseek-v3.2", main.DEFAULT_NVIDIA_TEACHER_MODELS)
         self.assertEqual(
             main.normalize_nvidia_base_url("https://integrate.api.nvidia.com/v1/chat/completions"),
             "https://integrate.api.nvidia.com/v1",
@@ -3352,7 +3522,7 @@ class PipelineTests(unittest.TestCase):
                 client=client,
                 records=records,
                 output_file=output_file,
-                teacher_models=["deepseek-ai/deepseek-v3.2", "minimaxai/minimax-m2.7"],
+                teacher_models=["nvidia/nemotron-3-super-120b-a12b", "minimaxai/minimax-m2.7"],
                 samples_per_model=1,
                 min_reward=0.0,
                 max_length_ratio=4,
@@ -3461,7 +3631,7 @@ class PipelineTests(unittest.TestCase):
                 client=client,
                 records=records,
                 output_file=output_file,
-                teacher_models=["deepseek-ai/deepseek-v3.2", "minimaxai/minimax-m2.7"],
+                teacher_models=["nvidia/nemotron-3-super-120b-a12b", "minimaxai/minimax-m2.7"],
                 samples_per_model=1,
                 requests_per_minute=60,
                 main_agent_system_prompt=main.MAIN_AGENT_SYSTEM_PROMPT,

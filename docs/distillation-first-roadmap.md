@@ -83,11 +83,20 @@ python main.py main-nvidia-teacher-export --input-file data\main_agent_hard_seed
 python main.py main-training-data-report --input-file runs\main-agent-nvidia-teacher.jsonl --require-system --require-generated-metadata --json
 ```
 
-The default order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3 Super 120B-A12B,
-GPT-OSS 120B, then Qwen3-Next 80B-A3B. The command continues past a failed
-teacher endpoint by default and writes only local-verifier-passing rows to
-git-ignored `runs/`. It throttles to 36 RPM by default, below a 40 RPM endpoint
-limit.
+For a small best-answer plus second-angle set, collapse accepted teacher rows
+before LoRA/SFT:
+
+```powershell
+python main.py main-best-plus-alt-export --seed-file data\main_agent_v6_training_seed.jsonl --alternate-file runs\main-agent-nvidia-teacher.jsonl --pair-output-file runs\main-agent-best-plus-one-alt.jsonl --sft-output-file runs\main-agent-best-plus-one-alt-sft.jsonl --summary-output-file runs\main-agent-best-plus-one-alt-summary.json --json
+python main.py main-training-data-report --input-file runs\main-agent-best-plus-one-alt-sft.jsonl --require-system --require-generated-metadata --json
+```
+
+The default order is MiniMax M2.7, Nemotron 3 Super 120B-A12B,
+Qwen3-Next 80B-A3B, then GPT-OSS 120B. DeepSeek V3.2 is no longer a default
+teacher path because repeated smoke runs showed unstable latency/timeouts. The
+command continues past a failed teacher endpoint by default and writes only
+local-verifier-passing rows to git-ignored `runs/`. It throttles to 36 RPM by
+default, below a 40 RPM endpoint limit.
 
 This checks the current seed, hard, held-out, rotated held-out, and fresh
 held-out corpora together for duplicate ids, duplicate prompt hashes,
