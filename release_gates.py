@@ -21,6 +21,29 @@ from main_agent_data import apply_main_agent_requirements, check_main_agent_corp
 from runtime_config import RuntimeConfig
 
 
+LEGACY_CLEAN_HELDOUT_SPECS: tuple[tuple[str, str, int, int], ...] = (
+    ("v5_clean_heldout", "data/main_agent_v5_clean_heldout_seed.jsonl", 24, 4),
+)
+ARCHITECTURE_PRESSURE_SPECS: tuple[tuple[str, str, int, int], ...] = (
+    ("architecture_adversarial", "data/architecture_adversarial_seed.jsonl", 19, 6),
+    ("architecture_containment_pressure", "data/architecture_containment_pressure_seed.jsonl", 25, 8),
+    ("architecture_strong_pressure", "data/architecture_strong_pressure_seed.jsonl", 30, 10),
+)
+MAIN_RELEASE_CORPUS_SPECS: tuple[tuple[str, str, int, int], ...] = (
+    ("seed", "data/main_agent_seed.jsonl", 40, 1),
+    ("hard", "data/main_agent_hard_seed.jsonl", 30, 2),
+    ("heldout", "data/main_agent_heldout_seed.jsonl", 12, 2),
+    ("rotated_heldout", "data/main_agent_rotated_heldout_seed.jsonl", 8, 2),
+    ("fresh_heldout", "data/main_agent_fresh_heldout_seed.jsonl", 12, 2),
+    ("latent_probe", "data/main_agent_latent_probe_seed.jsonl", 8, 2),
+)
+WITHDRAWN_CLEAN_HELDOUT_VERSIONS = tuple(f"v{version}" for version in range(6, 18))
+NEXT_CAPABILITY_CLAIM_VERSION = "v6"
+NEXT_CAPABILITY_CLAIM_REQUIREMENT = (
+    "mint a fresh unused v6 capability eval surface after training"
+)
+
+
 @dataclass(frozen=True)
 class ArchitectureCheckItem:
     name: str
@@ -298,50 +321,75 @@ def render_verifier_tool_gate(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def legacy_clean_heldout_checks(project_root: Path) -> tuple[dict[str, Any], dict[str, Path]]:
+    checks: dict[str, Any] = {}
+    paths: dict[str, Path] = {}
+    for key, relative_path, min_total, min_category in LEGACY_CLEAN_HELDOUT_SPECS:
+        path = project_root / relative_path
+        paths[key] = path
+        checks[key] = apply_main_agent_requirements(
+            check_main_agent_corpus(path),
+            min_total=min_total,
+            min_category=min_category,
+        )
+    return checks, paths
+
+
+def architecture_pressure_checks(project_root: Path) -> dict[str, Any]:
+    return {
+        key: apply_architecture_adversarial_requirements(
+            check_architecture_adversarial_corpus(project_root / relative_path),
+            min_total=min_total,
+            min_layer=min_layer,
+        )
+        for key, relative_path, min_total, min_layer in ARCHITECTURE_PRESSURE_SPECS
+    }
+
+
+def main_release_corpus_checks(project_root: Path) -> dict[str, Any]:
+    return {
+        key: apply_main_agent_requirements(
+            check_main_agent_corpus(project_root / relative_path),
+            min_total=min_total,
+            min_category=min_category,
+        )
+        for key, relative_path, min_total, min_category in MAIN_RELEASE_CORPUS_SPECS
+    }
+
+
+def main_data_quality_summary(quality: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "total_records": quality["total_records"],
+        "total_verifier_records": quality["total_verifier_records"],
+        "overall_verifier_rate": quality["overall_verifier_rate"],
+        "verifier_type_totals": quality.get("verifier_type_totals", {}),
+        "verifier_type_count": quality.get("verifier_type_count", 0),
+        "errors": quality["errors"],
+    }
+
+
+def capability_claim_quality_summary(
+    quality: dict[str, Any],
+    legacy_clean_heldout_paths: dict[str, Path],
+) -> dict[str, Any]:
+    return {
+        "current_clean_claim_surface": None,
+        "evidence_excluded_surfaces": [
+            str(legacy_clean_heldout_paths[key])
+            for key in sorted(legacy_clean_heldout_paths)
+        ],
+        "withdrawn_surfaces": list(WITHDRAWN_CLEAN_HELDOUT_VERSIONS),
+        "next_capability_claim_version": NEXT_CAPABILITY_CLAIM_VERSION,
+        "next_required": NEXT_CAPABILITY_CLAIM_REQUIREMENT,
+        **main_data_quality_summary(quality),
+    }
+
+
 def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) -> dict[str, Any]:
     architecture = config.architecture_check_data()
-    architecture_adversarial = apply_architecture_adversarial_requirements(
-        check_architecture_adversarial_corpus(config.project_root / "data" / "architecture_adversarial_seed.jsonl"),
-        min_total=19,
-        min_layer=6,
-    )
-    architecture_containment_pressure = apply_architecture_adversarial_requirements(
-        check_architecture_adversarial_corpus(
-            config.project_root / "data" / "architecture_containment_pressure_seed.jsonl"
-        ),
-        min_total=25,
-        min_layer=8,
-    )
-    seed_check = apply_main_agent_requirements(
-        check_main_agent_corpus(config.project_root / "data" / "main_agent_seed.jsonl"),
-        min_total=40,
-        min_category=1,
-    )
-    hard_check = apply_main_agent_requirements(
-        check_main_agent_corpus(config.project_root / "data" / "main_agent_hard_seed.jsonl"),
-        min_total=30,
-        min_category=2,
-    )
-    heldout_check = apply_main_agent_requirements(
-        check_main_agent_corpus(config.project_root / "data" / "main_agent_heldout_seed.jsonl"),
-        min_total=12,
-        min_category=2,
-    )
-    rotated_heldout_check = apply_main_agent_requirements(
-        check_main_agent_corpus(config.project_root / "data" / "main_agent_rotated_heldout_seed.jsonl"),
-        min_total=8,
-        min_category=2,
-    )
-    fresh_heldout_check = apply_main_agent_requirements(
-        check_main_agent_corpus(config.project_root / "data" / "main_agent_fresh_heldout_seed.jsonl"),
-        min_total=12,
-        min_category=2,
-    )
-    latent_probe_check = apply_main_agent_requirements(
-        check_main_agent_corpus(config.project_root / "data" / "main_agent_latent_probe_seed.jsonl"),
-        min_total=8,
-        min_category=2,
-    )
+    architecture_pressures = architecture_pressure_checks(config.project_root)
+    main_corpus_checks = main_release_corpus_checks(config.project_root)
+    clean_heldout_checks, clean_heldout_paths = legacy_clean_heldout_checks(config.project_root)
     data_quality = config.main_data_quality_check_data(list(config.main_data_quality_files))
     sft_format = config.sft_export_format_gate_data(list(config.main_data_quality_files))
     distill = apply_distill_balance_requirements(
@@ -355,15 +403,14 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
 
     errors: list[str] = []
     errors.extend(prefixed_errors("architecture", architecture["errors"]))
-    errors.extend(prefixed_errors("architecture_adversarial", architecture_adversarial.errors))
-    errors.extend(prefixed_errors("architecture_containment_pressure", architecture_containment_pressure.errors))
-    errors.extend(prefixed_errors("main_seed", seed_check.errors))
-    errors.extend(prefixed_errors("main_hard", hard_check.errors))
-    errors.extend(prefixed_errors("main_heldout", heldout_check.errors))
-    errors.extend(prefixed_errors("main_rotated_heldout", rotated_heldout_check.errors))
-    errors.extend(prefixed_errors("main_fresh_heldout", fresh_heldout_check.errors))
-    errors.extend(prefixed_errors("main_latent_probe", latent_probe_check.errors))
+    for key, check in architecture_pressures.items():
+        errors.extend(prefixed_errors(key, check.errors))
+    for key, check in clean_heldout_checks.items():
+        errors.extend(prefixed_errors(f"main_{key}", check.errors))
+    for key, check in main_corpus_checks.items():
+        errors.extend(prefixed_errors(f"main_{key}", check.errors))
     errors.extend(prefixed_errors("data_quality", data_quality["errors"]))
+    errors.extend(prefixed_errors("capability_claim_quality", data_quality["errors"]))
     errors.extend(prefixed_errors("sft_format", sft_format["errors"]))
     errors.extend(prefixed_errors("distill", distill.errors))
     errors.extend(prefixed_errors("verifier_tool", verifier_tool["errors"]))
@@ -375,24 +422,16 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
             "total": architecture["total"],
             "errors": architecture["errors"],
         },
-        "architecture_adversarial": architecture_adversarial.public_dict(),
-        "architecture_containment_pressure": architecture_containment_pressure.public_dict(),
+        **{key: check.public_dict() for key, check in architecture_pressures.items()},
         "main_corpora": {
-            "seed": seed_check.public_dict(),
-            "hard": hard_check.public_dict(),
-            "heldout": heldout_check.public_dict(),
-            "rotated_heldout": rotated_heldout_check.public_dict(),
-            "fresh_heldout": fresh_heldout_check.public_dict(),
-            "latent_probe": latent_probe_check.public_dict(),
+            **{key: check.public_dict() for key, check in main_corpus_checks.items()},
+            **{key: check.public_dict() for key, check in clean_heldout_checks.items()},
         },
-        "data_quality": {
-            "total_records": data_quality["total_records"],
-            "total_verifier_records": data_quality["total_verifier_records"],
-            "overall_verifier_rate": data_quality["overall_verifier_rate"],
-            "verifier_type_totals": data_quality.get("verifier_type_totals", {}),
-            "verifier_type_count": data_quality.get("verifier_type_count", 0),
-            "errors": data_quality["errors"],
-        },
+        "data_quality": main_data_quality_summary(data_quality),
+        "capability_claim_quality": capability_claim_quality_summary(
+            data_quality,
+            clean_heldout_paths,
+        ),
         "sft_format": sft_format,
         "distill": distill.public_dict(),
         "verifier_tool_errors": verifier_tool["errors"],
@@ -403,6 +442,18 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
 
 def render_local_release_gate(data: dict[str, Any]) -> str:
     status = "ok" if not data["errors"] else "error"
+    clean_heldout_keys = sorted(
+        (
+            key
+            for key in data["main_corpora"]
+            if key.startswith("v") and key.endswith("_clean_heldout")
+        ),
+        key=lambda key: int(key[1:].split("_", 1)[0]),
+    )
+    clean_heldout_summary = ", ".join(
+        f"{key.replace('_heldout', '')}={data['main_corpora'][key]['total']}"
+        for key in clean_heldout_keys
+    )
     lines = [
         f"Local release gate: {status}",
         f"Architecture: {data['architecture']['passed']}/{data['architecture']['total']}",
@@ -425,7 +476,17 @@ def render_local_release_gate(data: dict[str, Any]) -> str:
             action=data["architecture_containment_pressure"]["layers"].get("action", 0),
         ),
         (
-            "Main corpora: seed={seed}, hard={hard}, heldout={heldout}, rotated={rotated}, fresh={fresh}, latent_probe={latent_probe}"
+            "Architecture strong pressure: records={total}, "
+            "pipeline={pipeline}, cold_eyes={cold_eyes}, action={action}"
+        ).format(
+            total=data["architecture_strong_pressure"]["total"],
+            pipeline=data["architecture_strong_pressure"]["layers"].get("pipeline", 0),
+            cold_eyes=data["architecture_strong_pressure"]["layers"].get("cold_eyes", 0),
+            action=data["architecture_strong_pressure"]["layers"].get("action", 0),
+        ),
+        (
+            "Main corpora: seed={seed}, hard={hard}, heldout={heldout}, rotated={rotated}, "
+            "fresh={fresh}, latent_probe={latent_probe}"
         ).format(
             seed=data["main_corpora"]["seed"]["total"],
             hard=data["main_corpora"]["hard"]["total"],
@@ -434,10 +495,17 @@ def render_local_release_gate(data: dict[str, Any]) -> str:
             fresh=data["main_corpora"]["fresh_heldout"]["total"],
             latent_probe=data["main_corpora"]["latent_probe"]["total"],
         ),
+        f"Legacy clean heldout files (not evidence): {clean_heldout_summary}",
+        "Withdrawn clean heldout files: old v6-v17 removed",
+        "Capability evidence: no current clean claim surface; next proof restarts at v6",
         (
             "Data quality: records={total_records}, verifier={total_verifier_records} "
             "({overall_verifier_rate:.3f}), types={verifier_type_count}"
         ).format(**data["data_quality"]),
+        (
+            "Capability dev-lane quality: records={total_records}, verifier={total_verifier_records} "
+            "({overall_verifier_rate:.3f}), types={verifier_type_count}"
+        ).format(**data["capability_claim_quality"]),
         f"SFT format rows: {data['sft_format']['rows']}, system={data['sft_format']['system_rows']}",
         (
             "Distill: records={total}, pass={pass_count}, fail={fail_count}"

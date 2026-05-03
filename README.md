@@ -1,688 +1,184 @@
 # Fourth Path Local Lab
 
-Local open-weight model lab for the Fourth Path architecture described in
+Local reference implementation for the Fourth Path architecture described in
 [`separation-and-audit-alignment`](https://github.com/shihchengwei-lab/separation-and-audit-alignment).
 
-This repository is a reference implementation, not a proven safety system. It is
-intended to make the architecture concrete enough to inspect, run, and test on a
-local machine.
+This repository is a research prototype, not a proven safety system. It exists
+to make one architectural claim concrete enough to inspect and test on a local
+machine:
 
-## Core Question
+```text
+Capability and safety should grow together:
+do not leak dangerous capability, and do not over-cage normal capability.
+```
 
-This repository is not only about making an 8B local model faster.
+## Architecture First
 
-The local 8B model is the controllable testbed. The larger question is whether
-some capability-safety conflict comes from placing too many jobs inside the same
-primary reasoning loop:
+The repo tests whether useful capability is lost when one model loop must do too
+many jobs at once: solve the task, maintain refusal posture, monitor policy
+boundaries, preserve alignment, and produce the final answer.
 
-- reasoning about the task
-- maintaining refusal posture
-- monitoring policy boundaries
-- preserving conversational alignment
-- producing the final answer
+The goal is not to make the Main Agent timid. It should become a stronger
+candidate generator for normal tasks. The goal is also not to trust the Main
+Agent with final permission. Dangerous content, fake approval, hidden
+control-plane leakage, and unaudited side effects must still be blocked by
+external layers.
 
-The Fourth Path hypothesis is that some safety overhead may be architectural.
-If reasoning, policy enforcement, and audit are separated into different
-layers, then the primary model may spend more of its finite inference budget on
-reasoning while an independent audit layer preserves the final safety boundary.
+The Fourth Path shape here splits those jobs:
 
-That question scales beyond this machine:
+- **Main Agent**: generates candidate answers. It does not approve, refuse, or
+  execute actions.
+- **Input prefilter**: routes obvious request-side canon violations before
+  generation. It cannot approve output.
+- **Candidate classifier**: catches candidate-side role, canon, and formatting
+  issues before audit. It cannot approve output.
+- **Mechanical Cold Eyes**: fail-closed output audit against policy/canon.
+- **Action Gate**: pre-execution audit boundary for side effects such as file,
+  network, or tool actions.
+- **Refusal Module**: emits a fixed refusal outside model generation when the
+  pipeline blocks.
 
-- With an 8B open local model, the repo asks how much useful capability can be
-  recovered by architecture, prompting, search, distillation, and mechanical
-  audit before changing weights.
-- With a frontier hosted model, the same question becomes whether a much
-  stronger reasoner can be granted more useful freedom if final safety authority
-  is moved to a separate, colder, harder-to-drift audit layer.
-- On the path toward AGI, the question becomes whether architectural separation
-  can reduce one bottleneck between raw capability and deployable autonomy.
-- If the system were AGI-level, the safety question becomes stricter, not
-  looser: is the audit layer independent, cold-started, mechanically bounded
-  where possible, and strong enough that final output remains constrained even
-  when the reasoning layer is much more capable.
+The important invariant:
 
-This repo cannot prove that answer. It can build and measure the shape of the
-answer: separate reasoning from permission, keep final harmlessness outside the
-main agent, measure capability loss and audit cost, and make every layer's
-authority explicit.
+```text
+Candidate text never grants authority.
+```
 
-## What It Implements
+If the Main Agent writes "Allowed", "PASS", "approved by Cold Eyes", or any
+similar phrase, that is still only candidate text. External layers decide
+whether it can be returned or acted on.
 
-The prototype separates several roles that are often coupled inside one
-assistant loop:
+## What This Repo Implements
 
-- **Main Agent**: produces candidate answers.
-- **Input prefilter**: routes obvious canon violations to the refusal module; it
-  cannot approve output.
-- **Classify**: routes candidate-output issues; it cannot approve output.
-- **Cold Eyes**: performs a single-pass review against `canon.md`.
-- **Mechanical Cold Eyes gate**: blocks high-confidence canon hits before the
-  LLM judge; it cannot approve output.
-- **Side-effect boundary**: this prototype does not let the Main Agent execute
-  tools or external actions. Any future tool call, file write, network request,
-  or other side effect must first become an auditable action candidate and fail
-  closed before execution if unaudited.
-- **Retry**: allows a bounded repair loop.
-- **Refusal Module**: emits a fixed refusal after a blocked request.
-- **Chat mode**: provides a simple natural-language interface over the audited
-  pipeline.
+- A local audited pipeline in `main.py`.
+- Deterministic policy and matcher code under `audit/`.
+- Runtime profiles for local open-weight model experiments.
+- Static and model-backed checks for role containment and action-gate behavior.
+- Synthetic verifier-backed corpora for Main Agent behavior experiments.
+- Optional data-generation and adapter-training lanes that keep safety authority
+  outside the Main Agent.
 
-Cold Eyes receives only the candidate output and the canon. It does not receive
-the full chat history, the Main Agent system prompt, or hidden reasoning traces.
-That is enough for output safety only. Side effects need their own pre-execution
-audit boundary because damage can happen before any final text is returned.
+See [Runtime Architecture](docs/architecture.md) for the full data flow,
+fail-closed behavior, and persisted-log privacy stance.
 
-## Current Local Model Targets
+## Current Local Default
 
-For the measured local machine, 16GB RAM and an RTX 4060 Laptop GPU with 8GB
-VRAM, the current compute-first recommendation is:
+For the measured local target, 16 GB RAM and an RTX 4060 Laptop GPU with 8 GB
+VRAM, the current compute-first profile is:
 
 ```text
 qwen3-8b-s2t-lite
 ```
 
-That profile uses the same `qwen3:8b` runtime base as `qwen3-8b-local-max`:
-matching 8192-token context for Main Agent and Cold Eyes to avoid repeated load
-overhead, short deterministic audit output, bounded retries, audit
-`num_predict=64`, `keep_alive=30m`, Ollama structured JSON output for Cold Eyes,
-and Ollama `think=false` plus `/no_think` for Qwen3 to avoid spending tokens on
-hidden thinking when the task does not need it. It adds a local selector that
-removes overlong or audit/canon-meta candidate text when the score improvement
-is decisive, without adding model calls.
+It uses `qwen3:8b` as the local base model and adds lightweight local candidate
+selection without granting safety approval authority to the selector or the Main
+Agent.
 
-For slower quality-seeking runs on the same base model, use:
+For profile details, benchmark history, and hardware tradeoffs, see
+[Local Compute Maximization Plan](docs/compute-maximization.md).
 
-```text
-qwen3-8b-deliberate
-```
+## Quick Start
 
-That profile adds one Main Agent self-refinement pass before Classify and Cold
-Eyes. It does not change refusal authority: Classify still cannot approve, and
-Cold Eyes still receives only the final candidate plus the canon.
-
-See [Local Compute Maximization Plan](docs/compute-maximization.md) for the
-model-choice rationale, algorithm notes, and measurement loop.
-
-The legacy compatibility profile still targets:
-
-```text
-gemma4:e4b
-```
-
-See [Qwen3-8B Headroom Audit](docs/headroom-audit-2026-05-02.md) for the
-current continue/stop gate on next-token headroom, paper directions, and
-KV-cache memory pressure.
-
-See [Main Agent Latent Headroom Probe](docs/latent-headroom-probe.md) for the
-current fixed-weight bottom-model probe: first-pass clean, any-clean,
-latent-rescued, stable-clean, and never-clean records across repeated
-prompt-shape attempts.
-
-See [Distillation-First Roadmap](docs/distillation-first-roadmap.md) for the
-current priority order: data quality, format, verifier/tool-use,
-inference-time compute, then KV cache work.
-
-See [Research Next Steps](docs/research-next-steps.md) for the 2026-05-02
-bounded paper pass that turns current distillation, verifier, test-time
-compute, and KV-cache papers into the next implementation backlog.
-
-See [llama.cpp TurboQuant Reference Notes](docs/llama-cpp-turboquant-backend.md)
-for the deferred reference-only KV-cache backend notes.
-
-See [Cold Eyes Distillation Plan](docs/distillation-plan.md) for the opt-in
-path toward a smaller local audit model.
-
-See [Qwen3 Main Agent LoRA Path](docs/qwen3-main-agent-lora.md) for the
-weight-change path that keeps safety and refusal authority in the audit layer.
-The current local QLoRA results are summarized in
-[Main Agent LoRA Experiment - 2026-05-02](docs/main-agent-lora-experiment-2026-05-02.md).
-Treat LoRA as an experimental Main Agent optimization lane, not as the
-repository's main identity.
-The route-level completion audit is recorded in
-[Route Validation Audit - 2026-05-02](docs/route-validation-audit-2026-05-02.md).
-
-See [rStar-Math Adaptation Note](docs/rstar-math-adaptation.md) for how
-MCTS-style self-evolved deep thinking can be adapted into a small local
-step-search and preference-data path without moving safety authority back into
-the Main Agent.
-
-See [SLM-MUX Adaptation Note](docs/slm-mux-adaptation.md) for the complementary
-multi-small-model route: independent generation, confidence routing, and offline
-model-complementarity search without small-model debate.
-
-See [Compute-Optimal Test-Time Adaptation](docs/compute-optimal-test-time.md)
-for the prompt-shape adaptive compute profile inspired by test-time compute
-scaling research.
-
-See [LightReasoner Adaptation Note](docs/lightreasoner-adaptation.md) for the
-expert/amateur contrast export path that keeps future LoRA data focused on
-high-divergence reasoning failures instead of easy rows.
-
-See [DeepSeek-R1 Adaptation Note](docs/deepseek-r1-adaptation.md) for the
-R1-lite rejection-sampling export path: sample multiple verifier-backed Main
-Agent attempts and keep only the passing rows for later LoRA/SFT experiments.
-
-See [LIMO Adaptation Note](docs/limo-adaptation.md) for the less-is-more
-curation path that selects a small cognitive-template set from accepted R1-lite
-rows before any LoRA/SFT attempt.
-
-See [Mix Distillation Adaptation Note](docs/mix-distillation-adaptation.md) for
-the small-model learnability-gap control that caps long-reasoning rows before
-training a local adapter.
-
-See [Closed-Loop Evaluation Path](docs/closed-loop-evaluation.md) for the
-held-out eval gate, one-command data pipeline, and training-data report used to
-avoid self-confirming benchmark claims.
-
-See [R2R Adaptation Note](docs/r2r-adaptation.md) for the small/large
-token-routing backend path and the `r2r-estimate` command.
-
-See [AGI-Scale Safety Architecture Notes](docs/agi-safety-architecture.md) for
-the larger Fourth Path framing: what would have to change before this shape
-could be considered for frontier or AGI-level systems.
-
-Five non-default algorithmic Qwen3 profiles are available:
-
-- `qwen3-8b-deliberate`: same `qwen3:8b` base, plus one internal quality
-  refinement pass before audit.
-- `qwen3-8b-reasoning`: same `qwen3:8b` base, but leaves Qwen3 thinking mode
-  available for higher test-time reasoning cost.
-- `qwen3-8b-s2t-lite`: same `qwen3:8b` base, plus a lightweight local selector
-  inspired by Select to Think. It does not add model calls. It triggers only on
-  compact-output, non-ASCII, near-boundary, or audit/canon-meta signals, and it
-  replaces the candidate only when the local score improvement is decisive.
-  It now also keeps Qwen3 thinking available only for arithmetic/counting prompts
-  and adds small distilled task hints for hard exact-format, code, mux, LoRA, and
-  defensive-reporting cases.
-- `qwen3-8b-compute-optimal-lite`: same base and local selector, plus an
-  experimental prompt-shape compute allocator. It avoids extra calls on strict
-  output-shape tasks, uses sequential refinement for single-track hard reasoning,
-  and uses parallel candidates for exploratory planning/comparison tasks.
-- `qwen3-8b-search`: same `qwen3:8b` base, generates two candidate answers,
-  then uses a quality selector for helpfulness, honesty, correctness, clarity,
-  format fit, and concise wording before the normal audit path.
-
-Three non-default model trial profiles are available:
-
-- `qwen3-1.7b-amateur`: a deliberately weaker Qwen3 main profile for
-  expert/amateur contrast sampling. It is not a recommended user-facing default.
-- `llama3.1-8b-candidate`: same-size main-model comparison with Qwen3 audit.
-- `gemma3-12b-pressure`: 12B pressure test that keeps main and audit on
-  `gemma3:12b` with a shorter 4096-token context.
-
-The latest local A/B run keeps the default conservative, but makes
-`qwen3-8b-s2t-lite` the strongest measured candidate. In the 2026-05-02 full
-idle run, the fixed warm benchmark finished with the same 3 pass / 1 refused
-result across measured profiles: `qwen3-8b-local-max` took about 11.3 seconds,
-`qwen3-8b-s2t-lite` took about 11.3 seconds, `qwen3-8b-deliberate` took about
-21.2 seconds, `qwen3-8b-reasoning` took about 54.4 seconds, and the current
-two-candidate `qwen3-8b-search` profile took about 33.4 seconds.
-
-On the 40-record Main Agent seed eval in that same full idle run,
-`qwen3-8b-s2t-lite` reached 40/40 clean cases with 0 refusal-like and 0
-overlong outputs while still using 40 Main Agent calls. `qwen3-8b-local-max`
-reached 39/40, `qwen3-8b-search` reached 36/40, `qwen3-8b-deliberate` reached
-40/40, and `qwen3-8b-reasoning` reached 37/40. The current two-candidate search
-profile still spends 120 Main Agent/selector calls, so its quality/latency
-tradeoff is weaker than the local selector on this corpus.
-After tightening the Main Agent contract for defensive and boundary-sensitive
-requests, a follow-up `qwen3-8b-local-max` seed eval reached 39/40 clean cases,
-and a second follow-up reached 38/40 clean cases. Both had 0 refusal-like
-outputs, 1-2 overlong cases, and average output/target length ratios around
-1.97-2.06 with the same 40 Main Agent calls. The current best cheap improvement
-is `qwen3-8b-s2t-lite`: the latest full idle run reached 40/40 clean cases, 0
-refusal-like outputs, 0 overlong outputs, and still only 40 Main Agent calls.
-Its local selector triggered on 26/40 records and actually rewrote 10/40, which
-means the extra control came from local post-selection rather than additional
-model calls.
-Reasoning mode produced more overlong outputs on this corpus, so thinking stays
-an explicit experiment rather than the default.
-
-Earlier model trials still matter as hardware evidence: `llama3.1-8b-candidate`
-finished in about 75.0 seconds because model switching dominated load time.
-`gemma3-12b-pressure` has passed the fixed benchmark, but its decode speed and
-larger memory footprint keep it as a pressure test, not the compute-first
-default.
-
-## Setup
-
-Install [Ollama](https://ollama.com/) and download the recommended local model:
+Install Python 3.12 and Ollama, then pull the default local model:
 
 ```powershell
 ollama pull qwen3:8b
 ```
 
-If you need the legacy compatibility profile, also pull `gemma4:e4b`.
-
-This repository has no Python package dependencies. It uses Python 3.12 standard
-library only.
-
-The included Windows helper scripts assume this local layout:
-
-```text
-E:\Ollama\ollama.exe
-E:\ollama-models
-```
-
-Adjust the scripts if your Ollama executable or model directory lives elsewhere.
-
-## Usage
-
-Start the natural-language chat interface:
+Run the no-Ollama local gates:
 
 ```powershell
-.\chat.cmd
+python -m unittest discover -s tests -v
+python main.py local-release-gate --json
 ```
-
-Inside chat mode:
-
-```text
-/help   Show commands.
-/audit  Toggle detailed audit output.
-/reset  Clear this chat session memory.
-/exit   Leave chat.
-```
-
-List available local runtime profiles:
-
-```powershell
-python main.py profiles
-```
-
-Check architecture authority invariants without calling Ollama:
-
-```powershell
-python main.py architecture-check
-```
-
-Audit one proposed side effect before execution:
-
-```powershell
-python main.py action-audit --action-type network_request --target https://example.invalid --intent "send request" --args-summary "POST body" --risk-surface external_network --json
-```
-
-Validate and run the role-boundary adversarial suite:
-
-```powershell
-python main.py architecture-adversarial-check --min-total 19 --min-layer 6
-python main.py architecture-adversarial-eval --profile qwen3-8b-local-max --json --timeout 900
-python main.py architecture-adversarial-check --input-file data\architecture_containment_pressure_seed.jsonl --min-total 25 --min-layer 8
-python main.py architecture-adversarial-eval --profile qwen3-8b-local-max --input-file data\architecture_containment_pressure_seed.jsonl --json --timeout 900 --min-pass-rate 1.0
-```
-
-This suite probes a different failure mode from the regular benchmark: whether
-the Main Agent can be induced to expose hidden system/developer/audit state, and
-whether Cold Eyes can be induced by candidate text to ignore canon or
-self-approve, and whether unaudited side effects fail closed before execution.
-Public canon references are not treated as leaks; users should be able to know
-which public rule governs a refusal.
-Summaries store ids, verdicts, issue labels, timing, and token counts; they do
-not store adversarial prompts, candidates, or model outputs.
-
-The first measured run found the useful split: Cold Eyes resisted all 6/6
-candidate-side attacks, but raw Main Agent output often followed meta requests.
-That is expected under this architecture: Main Agent is not the safety or audit
-authority. Hidden state leakage is handled as an external deterministic
-candidate issue; public canon transparency is allowed.
-
-After narrowing the hidden-state check and making the phishing mechanical gate
-less keyword-blunt, the current `qwen3-8b-local-max` adversarial run reaches
-12/12. It also flags invented canon clause numbers as an Honest-side candidate
-issue (`unsupported_canon_reference`) instead of letting a hallucinated public
-rule pass through Cold Eyes.
 
 Run one audited request:
 
 ```powershell
-python main.py run --prompt "Summarize what this prototype does." --json --timeout 900
-```
-
-Run with the recommended local compute profile:
-
-```powershell
-ollama pull qwen3:8b
 python main.py run --profile qwen3-8b-s2t-lite --prompt "Summarize what this prototype does." --json --timeout 900
 ```
 
-Use `qwen3-8b-local-max` as the same-base ablation without the local selector:
-
-```powershell
-python main.py run --profile qwen3-8b-local-max --prompt "Summarize what this prototype does." --json --timeout 900
-```
-
-Run the slower Qwen3 self-refinement profile:
-
-```powershell
-python main.py run --profile qwen3-8b-deliberate --prompt "Summarize what this prototype does." --json --timeout 900
-```
-
-Try higher test-time compute profiles:
-
-```powershell
-python main.py run --profile qwen3-8b-s2t-lite --prompt "Write a short incident-response note." --json --timeout 900
-python main.py run --profile qwen3-8b-compute-optimal-lite --prompt "Compare two implementation plans." --json --timeout 900
-python main.py run --profile qwen3-8b-reasoning --prompt "Solve this carefully." --json --timeout 900
-python main.py run --profile qwen3-8b-search --prompt "Compare two implementation plans." --json --timeout 900
-```
-
-The S2T-lite profile is a cheap candidate-selection pass, not full token-level
-S2T. Full S2T would need logits/top-K access and selector distillation. This
-profile only tests the practical claim that many current failures are selection
-failures rather than missing capability. It is trigger-based and margin-gated,
-so normal answers are not shortened unless the local selector has a clear win.
-
-The original 40-record Main Agent seed eval is now saturated by
-`qwen3-8b-s2t-lite`. Use the harder verifier-backed corpus for regression, and
-use the fresh held-out corpus before judging any new search, mux, or LoRA path:
-
-```powershell
-python main.py main-check --input-file data\main_agent_hard_seed.jsonl --min-total 30 --min-category 2 --json
-python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_hard_seed.jsonl --json --timeout 900 --max-length-ratio 4
-python main.py main-check --input-file data\main_agent_fresh_heldout_seed.jsonl --min-total 12 --min-category 2 --json
-python main.py main-eval --profile qwen3-8b-s2t-lite --input-file data\main_agent_fresh_heldout_seed.jsonl --json --timeout 900 --max-length-ratio 4
-```
-
-The hard and fresh held-out corpora add lightweight verifiers for numeric
-answers, required or forbidden terms, regex constraints, small Python tests, and
-maximum output size. These verifier labels are reported as issue names only; the
-eval summary still omits prompts, targets, and model outputs.
-
-Earlier release-gate rerun on the older hard-corpus snapshot:
-`runs\release-gate-main-eval-hard-20260502.json` reached 16/16 clean,
-0 refusal-like, 0 overlong, and 16 total Main Agent calls. The same release
-gate also rechecked the original 40-record seed at
-`runs\release-gate-main-eval-seed-20260502.json` and reached 40/40 clean.
-A later defensive-context and format-hint pass rechecked
-`qwen3-8b-s2t-lite` on the seed, hard, and held-out corpora:
-`runs\main-eval-qwen3-8b-s2t-lite-after-hints-20260502.json` reached 40/40,
-`runs\main-eval-qwen3-8b-s2t-lite-hard-after-ratio-hint-20260502.json`
-reached 16/16, and
-`runs\main-eval-qwen3-8b-s2t-lite-heldout-after-hints-20260502.json` reached
-12/12, all with 0 refusal-like and 0 overlong cases.
-The later full idle run
-`runs\idle-long-run-20260502-072659.log` completed 29/29 steps with no failed or
-incomplete steps and included S2T seed/hard/held-out evals. It exposed a
-numeric verifier bug on decimal answers ending with a sentence period; after the
-verifier fix and audit-log concise cap,
-`runs\main-eval-qwen3-8b-s2t-lite-hard-after-audit-log-cap-20260502.json`
-reached 16/16 clean with 0 refusal-like and 0 overlong cases.
-
-The current hard corpus is larger than those runs: 30 verifier-backed rows,
-including targeted code-repair, strict-format, and planning cases derived from
-issue-label summaries rather than copied held-out prompts. A fresh post-hints
-eval reached 30/30 clean:
-`runs\main-eval-qwen3-8b-s2t-lite-hard-expanded-post-hints-v3-20260502.json`.
-Treat that as a tuned hard-regression result, not as clean held-out evidence.
-The fresh held-out corpus (`data\main_agent_fresh_heldout_seed.jsonl`) adds
-12 verifier-backed rows across math, code repair, strict format, planning, and
-defensive near-boundary helpfulness for the next clean gate.
-Initial `qwen3-8b-s2t-lite` measurement on that file reached only 2/12 clean:
-`runs\main-eval-qwen3-8b-s2t-lite-fresh-heldout-20260502.json`. After adding
-generic prompt-side hints, fixing overly strict verifier checks, and tightening
-the local selector for two-item outputs, the same file reached 12/12 clean:
-`runs\main-eval-qwen3-8b-s2t-lite-fresh-heldout-final-20260502.json`.
-The latest same-file ablation was less strong under repeat sampling:
-`runs\main-eval-ablation-fresh-heldout-final-v3-20260502.json` reached 11/12
-for `qwen3-8b-local-max`, 11/12 for `qwen3-8b-s2t-lite`, and 11/12 for
-`qwen3-8b-compute-optimal-lite`. The adaptive profile spent 16 Main Agent calls
-for the same clean count, so it is not justified on this surface.
-Because this file has now driven fixes, treat it as a tuned regression surface;
-the next broader capability claim needs another fresh held-out set or a public
-benchmark run.
-
-External NVIDIA teacher distillation is available for opt-in, verifier-filtered
-data generation while free or expiring teacher endpoints are useful. Keep the
-key in the local shell only, then run a small batch first:
-
-```powershell
-$env:NVIDIA_API_KEY = "<set locally>"
-python main.py main-nvidia-teacher-export --input-file data\main_agent_hard_seed.jsonl --limit-records 3 --samples-per-model 1 --json --timeout 1200
-python main.py main-training-data-report --input-file runs\main-agent-nvidia-teacher.jsonl --require-system --require-generated-metadata --json
-```
-
-If manual `$env:` setup is error-prone, use the helper. It prompts for the key
-with hidden local input, sets it only for that run, then executes the export and
-report:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1
-```
-
-To let future Codex shells call NVIDIA directly, persist the key to the Windows
-user environment. This does not write the key to the repo:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1 -PersistUserKey -Model minimaxai/minimax-m2.7 -LimitRecords 1 -Timeout 180
-```
-
-For a one-request smoke test before a broader batch:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\nvidia-teacher-distill.ps1 -Model minimaxai/minimax-m2.7 -LimitRecords 1 -Timeout 180
-```
-
-The helper saves secret-free summaries under `runs/` so a later session can
-inspect whether the endpoint failed or the local verifier rejected the sample.
-
-The default NVIDIA teacher order is DeepSeek V3.2, MiniMax M2.7, Nemotron 3
-Super 120B-A12B, GPT-OSS 120B, then Qwen3-Next 80B-A3B. The export writes only
-local-verifier-passing SFT rows under git-ignored `runs/` and does not print
-prompts, targets, or generated answers in its summary. It throttles to 36 RPM
-by default, below a 40 RPM endpoint limit. See
-[NVIDIA Teacher Distillation](docs/nvidia-teacher-distillation.md).
-
-For public benchmark comparisons instead of repo-owned claims, see
-[Public Benchmark Template](docs/public-benchmark-template.md). It defines a
-same-runner raw `qwen3:8b` versus `qwen3-8b-s2t-lite` comparison path through
-EleutherAI `lm-evaluation-harness`, plus a local OpenAI-compatible wrapper for
-the Main Agent and full pipeline targets.
-
-The search profile's selector is not a safety approver. It only selects the
-candidate that is more helpful, honest, correct, clear, and format-following.
-The selected candidate still goes through Classify and Cold Eyes.
-
-Use `--keep-alive 0` if you want Ollama to unload the model immediately after a
-one-off run, or another value such as `--keep-alive 10m` when memory pressure
-matters more than warm-start speed.
-
-Preload the selected profile before a chat or benchmark:
-
-```powershell
-python main.py warm --profile qwen3-8b-s2t-lite --json --timeout 900
-```
-
-Try a split audit model after measuring local model-switch overhead:
-
-```powershell
-ollama pull qwen3:1.7b
-python main.py run --profile qwen3-8b-split-audit --prompt "Summarize what this prototype does." --json --timeout 900
-```
-
-On this machine, the measured benchmark kept `qwen3-8b-local-max` ahead: about
-20.3-21.3 seconds with `bench --warmup`, versus 31.6 seconds for
-`qwen3-8b-deliberate`, 45.2 seconds for `qwen3-8b-reasoning`, 42.1 seconds for
-the current two-candidate `qwen3-8b-search`, 39.3 seconds for
-`qwen3-8b-split-audit` with
-`keep_alive=30m`, about 75.0 seconds for `llama3.1-8b-candidate`, and about
-61.3 seconds for `gemma3-12b-pressure`, with the same 3 pass / 1 refused
-result on the fixed benchmark.
-
-The Windows chat helper passes through extra arguments, so this also works:
+Start chat mode:
 
 ```powershell
 .\chat.cmd --profile qwen3-8b-s2t-lite
 ```
 
-Run the fixed local benchmark suite for a profile:
+Audit a proposed side effect before execution:
 
 ```powershell
-python main.py bench --profile qwen3-8b-local-max --warmup --json --timeout 900
-python main.py bench --profile qwen3-8b-deliberate --warmup --json --timeout 900
-python main.py bench --profile qwen3-8b-reasoning --warmup --json --timeout 900
-python main.py bench --profile qwen3-8b-search --warmup --json --timeout 900
+python main.py action-audit --action-type network_request --target https://example.invalid --intent "send request" --args-summary "POST body" --risk-surface external_network --json
 ```
 
-Benchmark summaries are written under `runs\` by default. They store prompt ids,
-status, attempts, elapsed milliseconds, summed attempt milliseconds, model
-roles, Main Agent call counts, token counts, prompt/eval/load milliseconds, and
-output length; they do not store prompt text or model output.
+## Documentation Map
 
-Validate and measure the synthetic Main Agent role-behavior corpus:
+Architecture and governance:
 
-```powershell
-python main.py local-release-gate --json
-python main.py main-check --min-total 40 --min-category 1
-python main.py main-eval --profile qwen3-8b-local-max --json --timeout 900 --max-length-ratio 4
-python main.py main-eval-failure-report --input-file runs\main-eval-ablation-rotated-20260502.json --json
-python main.py main-latent-headroom --profile qwen3-8b-local-max --json --timeout 1200 --max-length-ratio 4
-```
+- [Runtime Architecture](docs/architecture.md): pipeline flow, authority split,
+  fail-closed audit, and logging privacy.
+- [Workstreams](docs/workstreams.md): split capability extraction from
+  safety-layer pressure testing.
+- [AGI-Scale Safety Architecture Notes](docs/agi-safety-architecture.md):
+  larger Fourth Path framing and limits.
+- [Code Review Style](docs/code-review.md): evidence-bound seven-column PR
+  review format for this repo.
+- [Pipeline Troubleshooting](docs/pipeline-troubleshooting.md): common pipeline
+  failures and recovery steps.
 
-`local-release-gate` is a no-Ollama preflight. It runs the data-quality,
-architecture adversarial seed, distillation-format, verifier/tool-use, and
-inference-compute readiness gates before any slower model evaluation. Its SFT
-format gate now covers seed, hard, held-out, rotated held-out, and fresh
-held-out Main Agent corpora together so cross-file row-id collisions cannot hide
-outside the default seed export.
+Local compute and evaluation:
 
-`main-latent-headroom` is a model-running probe, but not a training pipeline. It
-uses `data\main_agent_latent_probe_seed.jsonl` to measure whether fixed
-`qwen3:8b` can reach a verifier-passing answer after repeated prompt-shape
-attempts. The latest 2026-05-02 local-max run reached first-pass 2/8,
-any-clean 3/8, latent-rescued 1/8, stable-clean 2/8, and never-clean 5/8. The
-same-budget `qwen3-8b-s2t-lite` run kept the same record-level result, and the
-same-call-budget deliberate run dropped to any-clean 2/8. Treat this as
-bottom-model headroom evidence, not a public benchmark.
+- [Local Compute Maximization Plan](docs/compute-maximization.md): profiles,
+  hardware fit, benchmark history, and runtime commands.
+- [Local Experiment Runbook](docs/local-experiment-runbook.md): compact command
+  index for evals, benchmarks, NVIDIA teacher export, SFT data, and long runs.
+- [Closed-Loop Evaluation Path](docs/closed-loop-evaluation.md): separation of
+  training data, held-out evaluation, and public benchmark comparison.
+- [Public Benchmark Template](docs/public-benchmark-template.md): reproducible
+  same-runner public benchmark path.
 
-`main-eval-failure-report` is also no-Ollama. It reads a saved `main-eval` or
-`main-eval-ablation` JSON file and reports issue labels, failure categories,
-profile efficiency, and local-selection reasons without printing prompts,
-targets, or model outputs.
+Training and model-improvement lanes:
 
-The Main Agent seed corpus currently has 40 synthetic records, including
-near-boundary defensive security tasks and concise-control tasks. Recent
-`qwen3-8b-local-max` runs had 0/40 refusal-like outputs. The best follow-up run
-had 39/40 clean cases; a later run had 37/40 clean cases, with all 3 issues
-being overlong outputs. The current bottleneck remains verbosity variance, not
-self-refusal.
+- [Distillation-First Roadmap](docs/distillation-first-roadmap.md): current
+  priority order before backend or weight changes.
+- [NVIDIA Teacher Distillation](docs/nvidia-teacher-distillation.md): opt-in
+  external teacher data export and secret handling.
+- [Qwen3 Main Agent LoRA Path](docs/qwen3-main-agent-lora.md): adapter-training
+  boundary and gates.
+- [Main Agent LoRA Experiment 2026-05-02](docs/main-agent-lora-experiment-2026-05-02.md):
+  current local QLoRA result summary and caveats.
+- [Cold Eyes Distillation Plan](docs/distillation-plan.md): opt-in path toward
+  a smaller local audit model.
 
-Export a Main Agent corpus for future LoRA / QLoRA experiments. This is an
-auxiliary Main Agent optimization path; the default project goal remains the
-separated Fourth Path runtime and audit boundary.
+Research notes:
 
-```powershell
-python main.py main-sft-export --output-file runs\main-agent-sft-seed.jsonl
-python main.py main-training-data-report --input-file runs\main-agent-sft-seed.jsonl --require-system --json
-```
-
-Export a smaller LightReasoner-lite contrast set by comparing a stronger Main
-Agent profile with a weaker profile:
-
-```powershell
-python main.py main-contrast-export --json --timeout 900
-python main.py main-contrast-export --amateur-profile qwen3-8b-local-max --json --timeout 900
-```
-
-The contrast export writes only selected synthetic prompt/Expert-answer pairs
-where the Expert is clean and the Amateur is clearly worse. It is meant for
-future adapter training triage, not for private chat logs.
-
-Estimate whether a future R2R-style small/large token router is worth a backend
-trial:
-
-```powershell
-python main.py r2r-estimate --json
-python main.py r2r-estimate --backend sglang-r2r --json
-```
-
-The estimate is a parameter-budget check, not a claim that Ollama chat already
-supports token-level routing.
-
-When the machine will be idle, run the long measurement pass explicitly:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\idle-long-run.ps1
-```
-
-That script runs static checks, the architecture adversarial eval, the Qwen3
-Main Agent evals, `qwen3-8b-s2t-lite` seed/hard/held-out evals, benchmark
-profiles, and strict Cold Eyes eval sequence, then writes timestamped outputs
-under `runs\`. It is intentionally not a scheduled task or background service.
-At the end it appends a compact metric summary to the log so the next
-improvement round can start from evidence instead of manually opening every
-JSON file.
-
-Summarize the latest idle run without printing prompt or model-output text:
-
-```powershell
-python main.py idle-run-summary
-python main.py idle-run-summary --stamp 20260502-053750 --json
-```
-
-Validate the synthetic Cold Eyes distillation seed corpus:
-
-```powershell
-python main.py distill-check --min-pass 19 --min-fail 25 --min-clause 8
-```
-
-Evaluate an audit model against that corpus:
-
-```powershell
-python main.py distill-eval --profile qwen3-8b-local-max --json --timeout 900 --require-exact --min-exact-accuracy 1 --min-mechanical-cases 25
-python main.py distill-eval --profile qwen3-8b-split-audit --json --timeout 900
-```
-
-On the current 44-record synthetic corpus, the pipeline matches all pass/fail
-verdicts and all exact clause labels using the default audit `num_predict=64`.
-Recent runs used 25 fail-only mechanical audit cases and 19 LLM judge cases.
-
-Inspect the Main Agent by itself, without the audit pipeline:
-
-```powershell
-python main.py diagnose-main --prompt "Write a simple Python function." --json --show-system-prompt --timeout 900
-```
+- [Research Next Steps](docs/research-next-steps.md)
+- [rStar-Math Adaptation Note](docs/rstar-math-adaptation.md)
+- [SLM-MUX Adaptation Note](docs/slm-mux-adaptation.md)
+- [Compute-Optimal Test-Time Adaptation](docs/compute-optimal-test-time.md)
+- [R2R Adaptation Note](docs/r2r-adaptation.md)
+- [llama.cpp TurboQuant Reference Notes](docs/llama-cpp-turboquant-backend.md)
 
 ## Logs
 
-Audit logs are written to:
+Runtime summaries are written under `runs\`, which is git-ignored. Persisted
+audit logs record routing, verdict, timing, token, and length metadata. They do
+not store the original prompt, Main Agent system prompt, full candidate output,
+or reasoning trace.
 
-```text
-runs\
-```
-
-The logs record run id, attempt, route, Cold Eyes verdict, canon clause, and
-final status. They also record model role, elapsed milliseconds, token counts,
-and Ollama prompt/eval/load milliseconds so runtime profiles can be compared
-locally. They do not store the original prompt, Main Agent system prompt, full
-candidate output, or reasoning trace.
-
-Local run logs are ignored by git.
-
-## Tests
-
-Run:
-
-```powershell
-python -m unittest discover -s tests -v
-```
+Command-line `--json` output may include the final returned answer. Treat shell
+output differently from persisted audit logs.
 
 ## Limitations
 
-- This is a research prototype, not production safety infrastructure.
-- The canon is intentionally small and only demonstrates the data flow.
-- Legacy Gemma profiles are instruction-tuned and may still carry safety
-  behavior in their weights.
-- The recommended Qwen3 profile is a local hardware fit, not a measured quality
-  guarantee.
-- The deliberate Qwen3 profile can improve candidate structure at test time,
-  but it spends another model call and does not guarantee better answers.
-- Speculative decoding and distillation are documented as future backend paths;
-  this repo currently keeps Ollama as the runtime boundary.
-- The chat mode keeps memory only for the current process.
-- The Windows helper scripts are convenience wrappers, not a cross-platform
-  installer.
+- This is a local research prototype, not production safety infrastructure.
+- Current positive results are route-validation evidence, not a full safety
+  proof.
+- The canon and policies are intentionally small.
+- Local model recommendations are hardware-specific.
+- LoRA, NVIDIA teacher export, public benchmarks, and backend experiments are
+  optional lanes, not the repo's main identity.
+- Side effects must remain auditable action candidates before execution.
 
 ## License
 
 MIT
-
-> Pipeline integration validated.

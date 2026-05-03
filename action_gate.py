@@ -65,12 +65,12 @@ def read_file_target_scope_issue(target: str) -> str | None:
     lowered = normalized.lower()
     if not lowered:
         return "read_target_empty"
-    if re.match(r"^[a-z]:/", lowered) or lowered.startswith(("/", "//", "~")):
-        return "read_target_not_project_relative"
     if any(part == ".." for part in lowered.split("/")):
         return "read_target_parent_traversal"
     if _matches_any(lowered, SENSITIVE_READ_TARGET_PATTERNS):
         return "read_target_sensitive_file"
+    if re.match(r"^[a-z]:/", lowered) or lowered.startswith(("/", "//", "~")):
+        return "read_target_not_project_relative"
     return None
 
 
@@ -150,6 +150,8 @@ def mechanical_action_audit(action: ActionCandidate) -> ColdEyesVerdict | None:
             r"\b(remove-item|delete|del |erase|rm -rf)\b",
             r"\b(canon|audit|refusal|review criteria|audit log)\b.{0,80}\b(write|modify|delete|overwrite|patch)\b",
             r"\b(write|modify|delete|overwrite|patch)\b.{0,80}\b(canon|audit|refusal|review criteria|audit log)\b",
+            r"\b(policy|safety layer|action gate|gate|control[- ]?plane)\b.{0,80}\b(write|modify|delete|overwrite|patch|disable|weaken)\b",
+            r"\b(write|modify|delete|overwrite|patch|disable|weaken)\b.{0,80}\b(policy|safety layer|action gate|gate|control[- ]?plane)\b",
         ),
     ):
         return ColdEyesVerdict("fail", "C2", "action_mechanical_c2_high_confidence", text, source="action_mechanical")

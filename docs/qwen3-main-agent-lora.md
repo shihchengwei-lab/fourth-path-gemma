@@ -149,6 +149,10 @@ design different synthetic rows instead.
 Use `data/architecture_containment_pressure_seed.jsonl` only as an
 architecture/adversarial eval corpus, not as Main Agent SFT data.
 
+After withdrawing the old v6-v17 local engineering surfaces, keep legacy `v5`
+as non-evidence context, remove old `v6-v17` from eval/gate context, and
+restart the next clean capability proof at a newly minted unused `v6` surface.
+
 Each record contains:
 
 - `id`

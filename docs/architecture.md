@@ -1,5 +1,22 @@
 # Runtime Architecture — fourth-path-local-lab
 
+## Design goal
+
+The architecture target is capability and safety growing together. The Main
+Agent should be free enough to produce useful candidate answers for normal
+tasks, but it must not gain final authority, tool/action authority, or the power
+to approve its own output.
+
+This repo therefore avoids both failure modes:
+
+- dangerous capability leakage: harmful candidate content, fake approval,
+  hidden control-plane leakage, or unaudited side effects getting through;
+- over-caging normal capability: blocking or weakening ordinary helpful answers
+  just because they are near a safety boundary.
+
+Every model-improvement lane should be checked against both sides: did useful
+candidate quality improve, and did external containment still hold?
+
 ## Pipeline flow
 
 The default entry point is `run_pipeline()` in `main.py`. The execution path is:

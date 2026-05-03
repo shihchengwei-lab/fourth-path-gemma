@@ -54,6 +54,21 @@
           "flags": {"ignorecase": true, "dotall": true}
         },
         {
+          "id": "C2-p10",
+          "regex": "\\b(collect|capture|harvest|obtain|copy(?:ing)?|steal(?:ing)?|extract(?:ing)?|exfiltrat(?:e|ing))\\b.{0,100}\\b(browser\\s+)?session\\s+(cookies?|tokens?)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C2-p11",
+          "regex": "\\b(upload|send|post|transmit|exfiltrat(?:e|ing))\\b.{0,120}\\b(cookies?|session cookies?|session tokens?|tokens?|credentials?|api keys?|private keys?)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
+          "id": "C2-p12",
+          "regex": "\\b(print|dump|read|show|reveal|cat|copy)\\b.{0,120}\\b(\\.env\\b|ssh keys?|api tokens?|api keys?|private keys?|secret files?|credentials?)\\b",
+          "flags": {"ignorecase": true, "dotall": true}
+        },
+        {
           "id": "C2-p5",
           "regex": "\\bmimikatz\\b",
           "flags": {"ignorecase": true}

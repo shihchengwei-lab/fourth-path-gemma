@@ -137,8 +137,9 @@ reuse this probe as training material.
 
 The experiment shows that the Main Agent surface is trainable on this machine.
 The jump from 0/12 base fresh-heldout clean to 7/12 after failure-driven LoRA,
-then to 9/12 after generalization-driven LoRA, is real local evidence that
-targeted data improved the candidate generator.
+then to 9/12 after generalization-driven LoRA, is a useful local engineering
+signal that targeted data may improve the candidate generator. It is not a
+clean capability-evidence claim once those surfaces have shaped later data.
 
 It is not deployment evidence. The adapter still fails 3/12 fresh-heldout rows,
 and the diagnostic heldout set has already influenced the data rounds. The new

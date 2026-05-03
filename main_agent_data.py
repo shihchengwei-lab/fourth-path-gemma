@@ -463,6 +463,8 @@ PYTHON_TEST_ALLOWED_NODES = (
     ast.GtE,
     ast.Is,
     ast.IsNot,
+    ast.In,
+    ast.NotIn,
 )
 
 

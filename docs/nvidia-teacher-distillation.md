@@ -3,6 +3,17 @@
 This path uses NVIDIA-hosted OpenAI-compatible chat endpoints as external
 teachers, then keeps only rows that pass the local Main Agent verifiers.
 
+The evidence boundary matters:
+
+- Codex authors the prompt, golden answer, and verifier.
+- NVIDIA-hosted teacher models provide second-opinion candidate answers from
+  different model families.
+- Local verifiers accept only teacher answers that satisfy the task contract.
+- Accepted rows are training candidates, not capability evidence.
+- Capability evidence requires a later evaluation surface that did not drive
+  prompt writing, golden answers, teacher generation, verifier fixes, or
+  adapter training.
+
 It is for urgent data generation while free or expiring endpoints are available.
 It is not a runtime dependency for the local pipeline.
 
@@ -103,13 +114,21 @@ The export writes accepted SFT-style rows to `runs/`, which is git-ignored.
 Rows include:
 
 - `messages`: Main Agent system prompt, user prompt, accepted assistant answer;
-- `source`: `nvidia_teacher_synthetic`;
+- `source`: `nvidia_teacher_second_opinion`;
 - `split`: `train_candidate`;
 - `verifier_labels`: local verifier metadata plus the teacher provider/model;
+- provenance fields including `prompt_author`, `golden_answer_author`,
+  `external_teacher_role`, `accepted_by`, `evidence_level`, and
+  `clean_claim_eligible`;
 - `teacher_provider`, `teacher_model`, `sample_index`, and `reward`.
 
 The command summary reports counts, issue labels, token totals, and model
 acceptance counts. It does not print prompts, targets, or generated answers.
+
+Do not use this command on a clean proof surface. Use it on Codex-authored
+golden-answer corpora intended for training-data generation. If a clean eval
+file is ever sent through this path, mark it spent and mint a new clean eval
+surface before making a capability claim.
 
 Validate the generated file before using it for any training step:
 

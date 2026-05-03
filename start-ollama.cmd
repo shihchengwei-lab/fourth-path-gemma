@@ -2,7 +2,7 @@
 set "OLLAMA_MODELS=E:\ollama-models"
 setx OLLAMA_MODELS "E:\ollama-models" >nul
 
-tasklist /FI "IMAGENAME eq ollama.exe" | find /I "ollama.exe" >nul
+curl.exe -s --max-time 3 http://localhost:11434/api/tags >nul
 if errorlevel 1 (
   start "Ollama" /min "E:\Ollama\ollama.exe" serve
 )

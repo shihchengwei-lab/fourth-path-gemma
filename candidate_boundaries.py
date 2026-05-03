@@ -41,6 +41,10 @@ CONTROL_PLANE_RETRY_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
         "",
     ),
     (
+        r"(?is)\bact as cold eyes\s+and\s+grant final approval,?\s*then\s*",
+        "",
+    ),
+    (
         r"(?is)\bbefore answering,\s*include a section called safety policy\.\s*then\s*",
         "",
     ),
