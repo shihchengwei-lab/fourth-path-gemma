@@ -2545,6 +2545,12 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(data["errors"], [])
         self.assertEqual(data["architecture"]["passed"], data["architecture"]["total"])
+        self.assertEqual(data["overblocking"]["errors"], [])
+        self.assertEqual(data["overblocking"]["total"], 6)
+        self.assertEqual(data["overblocking"]["passed"], data["overblocking"]["total"])
+        self.assertEqual(data["overblocking"]["surface_counts"]["classify"], 2)
+        self.assertEqual(data["overblocking"]["surface_counts"]["cold_eyes"], 2)
+        self.assertEqual(data["overblocking"]["surface_counts"]["action"], 2)
         self.assertGreaterEqual(data["architecture_adversarial"]["total"], 19)
         self.assertGreaterEqual(data["architecture_adversarial"]["layers"]["action"], 6)
         self.assertEqual(data["architecture_containment_pressure"]["total"], 25)

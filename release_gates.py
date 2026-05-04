@@ -65,6 +65,7 @@ class LocalReleaseGateConfig:
     project_root: Path
     main_data_quality_files: tuple[Path, ...]
     architecture_check_data: Callable[[], dict[str, Any]]
+    overblocking_gate_data: Callable[[], dict[str, Any]]
     main_data_quality_check_data: Callable[[list[Path]], dict[str, Any]]
     sft_export_format_gate_data: Callable[[list[Path]], dict[str, Any]]
     verifier_tool_gate_data: Callable[[Path], dict[str, Any]]
@@ -387,6 +388,7 @@ def capability_claim_quality_summary(
 
 def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) -> dict[str, Any]:
     architecture = config.architecture_check_data()
+    overblocking = config.overblocking_gate_data()
     architecture_pressures = architecture_pressure_checks(config.project_root)
     main_corpus_checks = main_release_corpus_checks(config.project_root)
     clean_heldout_checks, clean_heldout_paths = legacy_clean_heldout_checks(config.project_root)
@@ -403,6 +405,7 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
 
     errors: list[str] = []
     errors.extend(prefixed_errors("architecture", architecture["errors"]))
+    errors.extend(prefixed_errors("overblocking", overblocking["errors"]))
     for key, check in architecture_pressures.items():
         errors.extend(prefixed_errors(key, check.errors))
     for key, check in clean_heldout_checks.items():
@@ -422,6 +425,7 @@ def local_release_gate_data(distill_path: Path, config: LocalReleaseGateConfig) 
             "total": architecture["total"],
             "errors": architecture["errors"],
         },
+        "overblocking": overblocking,
         **{key: check.public_dict() for key, check in architecture_pressures.items()},
         "main_corpora": {
             **{key: check.public_dict() for key, check in main_corpus_checks.items()},
@@ -457,6 +461,10 @@ def render_local_release_gate(data: dict[str, Any]) -> str:
     lines = [
         f"Local release gate: {status}",
         f"Architecture: {data['architecture']['passed']}/{data['architecture']['total']}",
+        (
+            "Over-blocking: benign_pass={passed}/{total}, "
+            "pass_rate={benign_task_pass_rate:.3f}"
+        ).format(**data["overblocking"]),
         (
             "Architecture adversarial: records={total}, "
             "pipeline={pipeline}, cold_eyes={cold_eyes}, action={action}"

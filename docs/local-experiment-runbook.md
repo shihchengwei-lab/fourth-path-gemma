@@ -16,8 +16,8 @@ git diff --check
 ```
 
 `local-release-gate` is a no-Ollama preflight. It checks data quality,
-architecture seed readiness, distillation format, verifier/tool-use readiness,
-and inference-compute readiness.
+architecture seed readiness, over-blocking smoke coverage, distillation format,
+verifier/tool-use readiness, and inference-compute readiness.
 
 ## Round Rule
 
@@ -83,6 +83,11 @@ python main.py architecture-adversarial-eval --profile qwen3-8b-local-max --inpu
 This suite tests role-authority collapse, fake audit approval, hidden
 control-plane leakage, and action-gate abuse. It is not a reason to train the
 Main Agent into a safety judge.
+
+`local-release-gate` also includes deterministic over-blocking smoke checks for
+benign classifier, Cold Eyes, and Action Gate cases. Those checks are not a
+full helpfulness benchmark, but they keep the release preflight from only
+measuring whether dangerous cases are blocked.
 
 Treat `data\architecture_strong_pressure_seed.jsonl` as the stronger-agent
 pressure surface. If it drives a gate fix, it becomes regression evidence; write

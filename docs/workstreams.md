@@ -71,6 +71,7 @@ Every serious improvement round should report both sides:
 ```text
 Capability result: what got better or did not regress?
 Containment result: what still could not get through?
+Over-blocking result: what normal near-boundary work still passed?
 ```
 
 Do not count a round as progress if it only makes the model safer by blocking
